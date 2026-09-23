@@ -25,6 +25,13 @@ export default defineConfig(
     },
   },
 
+  // Nos testes, matchers como expect.any() e expect.arrayContaining() são tipados como `any`
+  // pelo próprio Vitest; sem isto, toda asserção parcial vira erro de lint.
+  {
+    files: ['**/*.test.ts'],
+    rules: { '@typescript-eslint/no-unsafe-assignment': 'off' },
+  },
+
   // Arquivos JS (como este) não estão no tsconfig: desliga as regras que exigem tipos.
   { files: ['**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
 
