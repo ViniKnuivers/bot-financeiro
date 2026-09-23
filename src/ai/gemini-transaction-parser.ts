@@ -22,6 +22,8 @@ export interface GeminiTransactionParserOptions {
   logger: Logger;
   /** Limite por tentativa (por modelo). Respostas normais levam de 1 a 4 segundos. */
   timeoutMs?: number;
+  /** Limite por tentativa quando a entrada é áudio, que o modelo leva mais tempo para processar. */
+  audioTimeoutMs?: number;
   /** Quantas vezes percorrer a lista de modelos de novo se todos falharem. */
   retriesOnUnavailable?: number;
 }
@@ -35,6 +37,7 @@ export class GeminiTransactionParser implements TransactionParser {
   private readonly timeZone: string;
   private readonly logger: Logger;
   private readonly timeoutMs: number;
+  private readonly audioTimeoutMs: number;
   private readonly retriesOnUnavailable: number;
 
   constructor(options: GeminiTransactionParserOptions) {
@@ -43,6 +46,7 @@ export class GeminiTransactionParser implements TransactionParser {
     this.timeZone = options.timeZone;
     this.logger = options.logger;
     this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.audioTimeoutMs = options.audioTimeoutMs ?? 30_000;
     // A lista de modelos já funciona como nova tentativa; percorrê-la de novo por
     // padrão só aumentaria a espera do usuário.
     this.retriesOnUnavailable = options.retriesOnUnavailable ?? 0;
@@ -55,7 +59,8 @@ export class GeminiTransactionParser implements TransactionParser {
       timeZone: this.timeZone,
     });
 
-    const raw = await this.generateWithRetry(parts, systemInstruction);
+    const timeoutMs = input.audio ? this.audioTimeoutMs : this.timeoutMs;
+    const raw = await this.generateWithRetry(parts, systemInstruction, timeoutMs);
     return validate(raw);
   }
 
@@ -64,7 +69,11 @@ export class GeminiTransactionParser implements TransactionParser {
    * sem responder, enquanto outros funcionam normalmente. Nesses dois casos, passa para o
    * próximo modelo da lista. Qualquer outro erro (chave, limite de uso) para na hora.
    */
-  private async generateWithRetry(parts: Part[], systemInstruction: string): Promise<string> {
+  private async generateWithRetry(
+    parts: Part[],
+    systemInstruction: string,
+    timeoutMs: number,
+  ): Promise<string> {
     let lastError: TransactionParserError | undefined;
 
     for (let round = 0; round <= this.retriesOnUnavailable; round++) {
@@ -72,7 +81,7 @@ export class GeminiTransactionParser implements TransactionParser {
 
       for (const model of this.modelChain) {
         try {
-          return await this.generate(model, parts, systemInstruction);
+          return await this.generate(model, parts, systemInstruction, timeoutMs);
         } catch (error) {
           if (!(error instanceof TransactionParserError) || !FALLBACK_REASONS.has(error.reason)) {
             throw error;
@@ -89,8 +98,13 @@ export class GeminiTransactionParser implements TransactionParser {
     throw lastError ?? new TransactionParserError('unavailable', 'nenhum modelo configurado');
   }
 
-  private async generate(model: string, parts: Part[], systemInstruction: string): Promise<string> {
-    const signal = AbortSignal.timeout(this.timeoutMs);
+  private async generate(
+    model: string,
+    parts: Part[],
+    systemInstruction: string,
+    timeoutMs: number,
+  ): Promise<string> {
+    const signal = AbortSignal.timeout(timeoutMs);
     try {
       const response = await this.models.generateContent({
         model,

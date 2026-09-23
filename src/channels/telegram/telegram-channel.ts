@@ -1,7 +1,14 @@
 import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
 import type { MessageChannel, MessageHandler, OutgoingMessage } from '../message-channel.js';
 import type { Logger } from '../../lib/logger.js';
+import { downloadTelegramFile } from './download-file.js';
 import { onlyAllowedUser } from './only-allowed-user.js';
+
+/**
+ * Áudios mais longos que isso são recusados antes do download: gastam muita cota da IA
+ * e dificilmente são um lançamento. 2 minutos cobre com folga "almoço 32 e uber 18".
+ */
+const MAX_VOICE_SECONDS = 120;
 
 export interface TelegramChannelOptions {
   token: string;
@@ -40,6 +47,37 @@ export class TelegramChannel implements MessageChannel {
       await ctx.replyWithChatAction('typing');
       const reply = await handler.handleText({ text, receivedAt: new Date(date * 1000) });
       await sendReply(ctx, reply);
+    });
+
+    // Mensagem de voz: baixa o .ogg e manda o áudio direto para a IA (sem serviço de transcrição).
+    this.bot.on('message:voice', async (ctx) => {
+      const { voice, date } = ctx.message;
+      if (voice.duration > MAX_VOICE_SECONDS) {
+        await ctx.reply(
+          `Esse áudio é longo demais (máximo ${MAX_VOICE_SECONDS}s). Pode mandar em partes?`,
+        );
+        return;
+      }
+
+      await ctx.replyWithChatAction('typing');
+      const file = await ctx.api.getFile(voice.file_id);
+      if (!file.file_path) {
+        throw new Error('Telegram não retornou file_path para o áudio');
+      }
+      const audio = await downloadTelegramFile(token, file.file_path);
+
+      const reply = await handler.handleAudio({
+        audio,
+        // O Telegram grava voz em OGG/Opus; mime_type pode vir ausente em clientes antigos.
+        mimeType: voice.mime_type ?? 'audio/ogg',
+        receivedAt: new Date(date * 1000),
+      });
+      await sendReply(ctx, reply);
+    });
+
+    // Qualquer outro tipo de mensagem (foto, figurinha, arquivo...).
+    this.bot.on('message', async (ctx) => {
+      await ctx.reply('Por enquanto eu entendo só mensagens de texto e de voz.');
     });
 
     // Toque em um botão inline (ex.: "Desfazer").

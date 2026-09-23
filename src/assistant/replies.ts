@@ -49,6 +49,11 @@ export function formatRegistered(transactions: Transaction[]): string {
   return [header, ...items].join('\n\n');
 }
 
+/** Cabeçalho das respostas a áudio, com o que a IA entendeu. */
+export function formatHeard(transcript: string): string {
+  return `🎙️ "${transcript}"\n\n`;
+}
+
 export function formatUndone(count: number): string {
   if (count === 0) return 'Esse registro já tinha sido desfeito.';
   return count === 1

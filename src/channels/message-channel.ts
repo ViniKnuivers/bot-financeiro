@@ -9,6 +9,13 @@ export interface IncomingTextMessage {
   receivedAt: Date;
 }
 
+export interface IncomingAudioMessage {
+  audio: Buffer;
+  /** Ex.: "audio/ogg" (mensagens de voz do Telegram são OGG/Opus). */
+  mimeType: string;
+  receivedAt: Date;
+}
+
 /** Um botão anexado à resposta. O canal decide como desenhá-lo (ex.: botão inline). */
 export interface ReplyAction {
   label: string;
@@ -24,6 +31,7 @@ export interface OutgoingMessage {
 export interface MessageHandler {
   handleStart(): OutgoingMessage;
   handleText(message: IncomingTextMessage): Promise<OutgoingMessage>;
+  handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage>;
   handleAction(actionId: string): Promise<OutgoingMessage>;
 }
 
