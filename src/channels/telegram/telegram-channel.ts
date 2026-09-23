@@ -33,8 +33,15 @@ export class TelegramChannel implements MessageChannel {
     // O filtro vem antes de tudo: nenhum handler abaixo roda para outros usuários.
     this.bot.use(onlyAllowedUser(allowedUserId, logger));
 
+    // Comandos vêm antes do handler de texto, senão "/ultimos" seria tratado como texto.
     this.bot.command('start', async (ctx) => {
       await sendReply(ctx, handler.handleStart());
+    });
+    this.bot.command('ultimos', async (ctx) => {
+      await sendReply(ctx, await handler.handleLatest());
+    });
+    this.bot.command('desfazer', async (ctx) => {
+      await sendReply(ctx, await handler.handleUndoLast());
     });
 
     this.bot.on('message:text', async (ctx) => {
@@ -120,7 +127,12 @@ export class TelegramChannel implements MessageChannel {
       throw error;
     }
 
-    await this.bot.api.setMyCommands([{ command: 'start', description: 'Boas-vindas e exemplos' }]);
+    // Lista que aparece no menu "/" do Telegram.
+    await this.bot.api.setMyCommands([
+      { command: 'ultimos', description: 'Seus 10 últimos lançamentos' },
+      { command: 'desfazer', description: 'Apaga o último lançamento' },
+      { command: 'start', description: 'Boas-vindas e exemplos' },
+    ]);
 
     // bot.start() só resolve quando o polling para; por isso não é aguardado aqui.
     // Erros de rede são re-tentados pelo grammY; só erros irrecuperáveis chegam no catch

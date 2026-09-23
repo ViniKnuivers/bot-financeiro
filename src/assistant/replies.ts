@@ -1,5 +1,5 @@
 import type { TransactionParserErrorReason } from '../ai/transaction-parser.js';
-import { formatDateOnly } from '../lib/dates.js';
+import { formatDateOnly, formatDayMonth } from '../lib/dates.js';
 import { formatCents } from '../lib/money.js';
 import {
   CATEGORY_LABELS,
@@ -21,6 +21,10 @@ export const WELCOME = [
   '',
   'Também entendo mensagens de voz.',
   'Depois de cada registro, você pode tocar em "Desfazer" se algo sair errado.',
+  '',
+  'Comandos:',
+  '/ultimos: seus 10 últimos lançamentos',
+  '/desfazer: apaga o último lançamento',
 ].join('\n');
 
 /**
@@ -47,6 +51,28 @@ export function formatRegistered(transactions: Transaction[]): string {
   });
 
   return [header, ...items].join('\n\n');
+}
+
+export function formatLatest(transactions: Transaction[]): string {
+  if (transactions.length === 0) {
+    return 'Você ainda não tem lançamentos. Manda algo como "almoço 32 no pix".';
+  }
+
+  const lines = transactions.map((t) => {
+    const icon = t.type === 'INCOME' ? '💰' : '💸';
+    return `${formatDayMonth(t.occurredAt)} ${icon} ${formatCents(t.amountCents)} · ${t.description} (${CATEGORY_LABELS[t.category]})`;
+  });
+  return ['🧾 Últimos lançamentos (mais recentes primeiro):', '', ...lines].join('\n');
+}
+
+export function formatUndoneLast(transaction: Transaction | null): string {
+  if (!transaction) return 'Não há lançamentos para desfazer.';
+
+  const t = transaction;
+  return [
+    '↩️ Apaguei o último lançamento:',
+    `${TYPE_LABELS[t.type]} · ${formatCents(t.amountCents)} · ${t.description} (${CATEGORY_LABELS[t.category]}) · ${formatDateOnly(t.occurredAt)}`,
+  ].join('\n');
 }
 
 /** Cabeçalho das respostas a áudio, com o que a IA entendeu. */

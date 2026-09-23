@@ -16,9 +16,11 @@ import type { Logger } from '../lib/logger.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
 import {
   formatHeard,
+  formatLatest,
   formatParserError,
   formatRegistered,
   formatUndone,
+  formatUndoneLast,
   WELCOME,
 } from './replies.js';
 
@@ -127,5 +129,17 @@ export class Assistant implements MessageHandler {
     const count = await this.deps.transactions.undoBatch(batchId);
     this.deps.logger.info({ batchId, count }, 'lote desfeito');
     return { text: formatUndone(count) };
+  }
+
+  async handleLatest(): Promise<OutgoingMessage> {
+    return { text: formatLatest(await this.deps.transactions.listLatest(10)) };
+  }
+
+  async handleUndoLast(): Promise<OutgoingMessage> {
+    const deleted = await this.deps.transactions.undoLast();
+    if (deleted) {
+      this.deps.logger.info({ id: deleted.id }, 'último lançamento desfeito');
+    }
+    return { text: formatUndoneLast(deleted) };
   }
 }

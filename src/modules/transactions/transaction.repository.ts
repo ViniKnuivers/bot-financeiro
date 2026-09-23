@@ -1,4 +1,4 @@
-import type { PrismaClient, Transaction } from '../../generated/prisma/client.js';
+import type { Prisma, PrismaClient, Transaction } from '../../generated/prisma/client.js';
 import type {
   Category,
   InputSource,
@@ -24,7 +24,20 @@ export interface TransactionRepository {
   createBatch(batchId: string, items: NewTransaction[]): Promise<Transaction[]>;
   /** Retorna quantas transações foram apagadas (0 se o lote já não existia). */
   deleteBatch(batchId: string): Promise<number>;
+  /** Registradas mais recentemente primeiro. */
+  findLatest(limit: number): Promise<Transaction[]>;
+  /** Apaga a transação registrada mais recentemente e a retorna (null se não houver). */
+  deleteLatest(): Promise<Transaction | null>;
 }
+
+/**
+ * Ordem de registro. As transações de um mesmo lote têm o mesmo createdAt (um único
+ * INSERT), então o desempate é pelo id: UUIDv7 cresce com o tempo de geração.
+ */
+const LATEST_FIRST: Prisma.TransactionOrderByWithRelationInput[] = [
+  { createdAt: 'desc' },
+  { id: 'desc' },
+];
 
 export class PrismaTransactionRepository implements TransactionRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -39,5 +52,18 @@ export class PrismaTransactionRepository implements TransactionRepository {
   async deleteBatch(batchId: string): Promise<number> {
     const { count } = await this.prisma.transaction.deleteMany({ where: { batchId } });
     return count;
+  }
+
+  findLatest(limit: number): Promise<Transaction[]> {
+    return this.prisma.transaction.findMany({ orderBy: LATEST_FIRST, take: limit });
+  }
+
+  async deleteLatest(): Promise<Transaction | null> {
+    const latest = await this.prisma.transaction.findFirst({ orderBy: LATEST_FIRST });
+    if (!latest) return null;
+    // deleteMany (e não delete) para não lançar erro se ela sumir entre as duas queries,
+    // por exemplo com um toque simultâneo no botão "Desfazer".
+    const { count } = await this.prisma.transaction.deleteMany({ where: { id: latest.id } });
+    return count > 0 ? latest : null;
   }
 }

@@ -48,4 +48,12 @@ export class TransactionService {
   undoBatch(batchId: string): Promise<number> {
     return this.repository.deleteBatch(batchId);
   }
+
+  listLatest(limit = 10): Promise<Transaction[]> {
+    return this.repository.findLatest(limit);
+  }
+
+  undoLast(): Promise<Transaction | null> {
+    return this.repository.deleteLatest();
+  }
 }

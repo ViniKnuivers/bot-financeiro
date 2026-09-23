@@ -32,6 +32,15 @@ export function weekdayName(dateOnly: string): string {
   );
 }
 
+/** Ex.: "23/09". */
+export function formatDayMonth(date: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: 'UTC',
+  }).format(date);
+}
+
 /** Ex.: "23/09/2026". */
 export function formatDateOnly(date: Date): string {
   return new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' }).format(date);

@@ -33,6 +33,10 @@ export interface MessageHandler {
   handleText(message: IncomingTextMessage): Promise<OutgoingMessage>;
   handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage>;
   handleAction(actionId: string): Promise<OutgoingMessage>;
+  /** Últimos lançamentos registrados. */
+  handleLatest(): Promise<OutgoingMessage>;
+  /** Apaga o último lançamento registrado. */
+  handleUndoLast(): Promise<OutgoingMessage>;
 }
 
 export interface MessageChannel {
