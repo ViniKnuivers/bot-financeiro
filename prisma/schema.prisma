@@ -1,0 +1,76 @@
+// Prisma ORM 7: o client é gerado como código TypeScript dentro de src/ (não mais em
+// node_modules) e a URL do banco fica em prisma.config.ts, não aqui.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+}
+
+// Um único enum para despesas e receitas mantém a tabela simples. A regra
+// "categoria de receita só com type INCOME" é validada na aplicação (Zod).
+enum Category {
+  // Despesas
+  ALIMENTACAO
+  MERCADO
+  TRANSPORTE
+  MORADIA
+  CONTAS
+  SAUDE
+  EDUCACAO
+  LAZER
+  ASSINATURAS
+  COMPRAS
+  OUTROS
+  // Receitas
+  SALARIO
+  ESTAGIO
+  FREELA
+  OUTROS_RECEITA
+}
+
+enum PaymentMethod {
+  PIX
+  CREDITO
+  DEBITO
+  DINHEIRO
+  OUTRO
+}
+
+enum InputSource {
+  TEXT
+  AUDIO
+}
+
+model Transaction {
+  // UUIDv7 é ordenado por tempo: índice mais compacto e ordem natural de criação.
+  id            String          @id @default(uuid(7)) @db.Uuid
+  type          TransactionType
+  // Sempre em centavos. Int (32 bits) comporta até R$ 21.474.836,47 por lançamento.
+  amountCents   Int
+  description   String
+  category      Category
+  paymentMethod PaymentMethod?
+  // Só a data (sem hora): evita que um fuso mal aplicado mude o dia do gasto.
+  occurredAt    DateTime        @db.Date
+  // Texto original ou transcrição do áudio, para auditoria.
+  rawInput      String
+  source        InputSource
+  // Agrupa as transações criadas pela mesma mensagem ("almoço 32 e uber 18").
+  // É o que o botão "Desfazer" referencia no callback_data (limite de 64 bytes).
+  batchId       String          @db.Uuid
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([batchId])
+  @@index([createdAt])
+  @@index([occurredAt])
+  @@map("transactions")
+}

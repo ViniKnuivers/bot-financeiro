@@ -1,0 +1,33 @@
+// @ts-check
+import js from '@eslint/js';
+import prettier from 'eslint-config-prettier';
+import { defineConfig } from 'eslint/config';
+import tseslint from 'typescript-eslint';
+
+export default defineConfig(
+  { ignores: ['dist', 'coverage', 'src/generated'] },
+
+  js.configs.recommended,
+  tseslint.configs.strictTypeChecked,
+  tseslint.configs.stylisticTypeChecked,
+  {
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/consistent-type-imports': 'error',
+      '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true }],
+      // Permite descartar campos com rest: const { omitido, ...resto } = obj
+      '@typescript-eslint/no-unused-vars': ['error', { ignoreRestSiblings: true }],
+    },
+  },
+
+  // Arquivos JS (como este) não estão no tsconfig: desliga as regras que exigem tipos.
+  { files: ['**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
+
+  // Sempre por último: desliga regras de estilo que conflitam com o Prettier.
+  prettier,
+);

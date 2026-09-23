@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+
+# Prisma Client gerado (recriado pelo postinstall / npm run db:generate)
+src/generated
+
+# Segredos
+.env

@@ -1,0 +1,53 @@
+# Desenvolvimento:  docker compose up -d db        (só o Postgres; a app roda com `npm run dev`)
+# Tudo em Docker:   docker compose --profile app up -d --build
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: financeiro
+      POSTGRES_PASSWORD: financeiro
+      POSTGRES_DB: financeiro
+      TZ: America/Sao_Paulo
+    ports:
+      - '127.0.0.1:5432:5432' # só acessível da própria máquina
+    volumes:
+      # A partir do Postgres 18 a imagem espera o volume em /var/lib/postgresql
+      # (e não mais em /var/lib/postgresql/data).
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U financeiro -d financeiro']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Aplica as migrações e termina. A imagem final (runtime) não tem o CLI do Prisma,
+  # então usamos o estágio de build, que tem as devDependencies.
+  migrate:
+    profiles: [app]
+    build:
+      context: .
+      target: build
+    command: ['npx', 'prisma', 'migrate', 'deploy']
+    environment:
+      DATABASE_URL: postgresql://financeiro:financeiro@db:5432/financeiro?schema=public
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    profiles: [app]
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://financeiro:financeiro@db:5432/financeiro?schema=public
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
