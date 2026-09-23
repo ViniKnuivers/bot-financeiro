@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "description": "Assessor financeiro pessoal via Telegram com IA (Gemini)",
+  "license": "MIT",
+  "author": "Vinicius Knuivers",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ViniKnuivers/financeiro-bot.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22.12"
