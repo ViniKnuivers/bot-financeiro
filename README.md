@@ -1,4 +1,4 @@
-# financeiro-bot
+# bot-financeiro
 
 Assessor financeiro pessoal no Telegram. Você manda uma mensagem de texto ou de voz do
 jeito que falaria ("almoço 32 no pix e uber 18,50 ontem"), uma IA (Google Gemini)
@@ -80,8 +80,8 @@ Isso não acontece se o faturamento estiver ativado no Google Cloud.
 ### 4. Baixe o projeto e configure
 
 ```bash
-git clone https://github.com/ViniKnuivers/financeiro-bot.git
-cd financeiro-bot
+git clone https://github.com/ViniKnuivers/bot-financeiro.git
+cd bot-financeiro
 cp .env.example .env
 ```
 
