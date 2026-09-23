@@ -2,8 +2,13 @@
 // node_modules) e a URL do banco fica em prisma.config.ts, não aqui.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Explícitos para não depender de o Prisma inferir pelo tsconfig.json (que não
+  // existe no momento do `prisma generate` dentro do Docker). Sem isso, os imports
+  // saíam como "./enums.ts" e o JavaScript compilado quebrava em produção.
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {

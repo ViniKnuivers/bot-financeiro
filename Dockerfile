@@ -22,7 +22,7 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 # --ignore-scripts: o postinstall (prisma generate) não é necessário aqui, o client
 # gerado já foi compilado para dist/ no estágio anterior.
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev --omit=optional --ignore-scripts && npm cache clean --force
 
 COPY --from=build /app/dist ./dist
 
