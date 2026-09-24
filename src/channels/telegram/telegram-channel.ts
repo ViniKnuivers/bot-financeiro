@@ -62,6 +62,12 @@ export class TelegramChannel implements MessageChannel {
     this.bot.command('fixos', async (ctx) => {
       await sendReply(ctx, await handler.handleRecurring());
     });
+    this.bot.command('planilha', async (ctx) => {
+      await sendReply(ctx, await handler.handleSpreadsheet());
+    });
+    this.bot.command('grafico', async (ctx) => {
+      await sendReply(ctx, await handler.handleCharts());
+    });
     this.bot.command('pendentes', async (ctx) => {
       for (const message of await handler.handlePending()) {
         await sendReply(ctx, message);
@@ -148,6 +154,8 @@ export class TelegramChannel implements MessageChannel {
       { command: 'resumo', description: 'Resumo do mês: sobra, investido, saldos' },
       { command: 'ultimos', description: 'Seus 10 últimos lançamentos' },
       { command: 'orcamento', description: 'Limites por categoria' },
+      { command: 'planilha', description: 'Link da sua planilha' },
+      { command: 'grafico', description: 'Gráficos na planilha' },
       { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
       { command: 'cartoes', description: 'Seus cartões, contas e saldos' },

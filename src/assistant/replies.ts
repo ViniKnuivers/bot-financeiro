@@ -1,6 +1,8 @@
 import type { TransactionParserErrorReason } from '../ai/transaction-parser.js';
 import type { PaymentMethod } from '../generated/prisma/enums.js';
-import { formatDateOnly, formatDayMonth } from '../lib/dates.js';
+import { formatDateOnly, formatDayMonth, formatMonthLong } from '../lib/dates.js';
+
+export { formatMonthLong, formatMonthShort as formatMonth } from '../lib/dates.js';
 import { formatCents } from '../lib/money.js';
 import {
   ACCOUNT_KIND_ICONS,
@@ -50,6 +52,7 @@ export const WELCOME = [
   '/resumo: quanto entrou, saiu, sobrou e foi investido no mês',
   '/orcamento: limites por categoria, com aviso ao passar de 80%',
   '/fixos: gastos fixos que eu lanço sozinho todo mês',
+  '/planilha e /grafico: sua planilha Google com tudo (se configurada)',
   '/cartoes: seus cartões, contas e saldos',
   '/pendentes: lançamentos esperando sua resposta',
   '/ultimos: seus 10 últimos lançamentos',
@@ -199,14 +202,6 @@ export interface AccountDetails {
   credit?: CreditSummary | null;
 }
 
-/** "2026-10" → "out/2026". */
-export function formatMonth(month: string): string {
-  const name = new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
-    .format(new Date(`${month}-01T00:00:00.000Z`))
-    .replace('.', '');
-  return `${name}/${month.slice(0, 4)}`;
-}
-
 /** "2026-10-05" → "05/10". */
 function formatShortDate(date: string): string {
   return `${date.slice(8, 10)}/${date.slice(5, 7)}`;
@@ -345,15 +340,6 @@ export function formatMonthSummary(
     }
   }
   return lines.join('\n');
-}
-
-/** "2026-09" → "setembro de 2026". */
-export function formatMonthLong(month: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  }).format(new Date(`${month}-01T00:00:00.000Z`));
 }
 
 function capitalize(text: string): string {

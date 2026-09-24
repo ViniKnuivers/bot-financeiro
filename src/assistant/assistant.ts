@@ -22,6 +22,7 @@ import type { ChatStateRepository } from '../modules/conversation/chat-state.rep
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
 import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
 import type { ReportService } from '../modules/reports/report.service.js';
+import type { SheetSyncService } from '../modules/sheets/sheet-sync.service.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
 import { AccountsFlow } from './accounts-flow.js';
 import { BudgetFlow } from './budget-flow.js';
@@ -54,7 +55,17 @@ export interface AssistantDeps {
   now?: () => Date;
   /** Fuso do usuário, para saber que dia é hoje. Padrão: São Paulo. */
   timeZone?: string;
+  /** Planilha Google; ausente quando não configurada. */
+  sheets?: SpreadsheetLink;
 }
+
+/** O que o assistente usa da sincronização com a planilha. */
+export type SpreadsheetLink = Pick<
+  SheetSyncService,
+  'url' | 'status' | 'syncNow' | 'requestSync' | 'failureMessage'
+>;
+
+const SPREADSHEET_SYNC_ACTION = 'sh:sync';
 
 const SUMMARY_PREFIX = 'rs:';
 
@@ -100,6 +111,10 @@ export class Assistant implements MessageHandler {
   }
 
   async handleText(message: IncomingTextMessage): Promise<OutgoingMessage> {
+    return this.afterChange(await this.routeText(message));
+  }
+
+  private async routeText(message: IncomingTextMessage): Promise<OutgoingMessage> {
     // Se o bot acabou de perguntar algo (ex.: "Qual o nome do cartão?"), o texto é a resposta.
     const flowReply =
       (await this.accountsFlow.handleText(message.text)) ??
@@ -116,7 +131,11 @@ export class Assistant implements MessageHandler {
     });
   }
 
-  handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage> {
+  async handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage> {
+    return this.afterChange(await this.processAudio(message));
+  }
+
+  private processAudio(message: IncomingAudioMessage): Promise<OutgoingMessage> {
     return this.process({
       parseInput: { audio: message.audio, mimeType: message.mimeType, now: message.receivedAt },
       source: 'AUDIO',
@@ -190,6 +209,14 @@ export class Assistant implements MessageHandler {
   }
 
   async handleAction(actionId: string): Promise<ActionReply> {
+    if (actionId === SPREADSHEET_SYNC_ACTION) {
+      await this.deps.sheets?.syncNow();
+      return { mode: 'replace', ...(await this.handleSpreadsheet()) };
+    }
+    return this.afterChange(await this.routeAction(actionId));
+  }
+
+  private async routeAction(actionId: string): Promise<ActionReply> {
     if (actionId.startsWith(UNDO_PREFIX)) return this.undoBatch(actionId);
     if (actionId.startsWith(SUMMARY_PREFIX)) {
       const month = actionId.slice(SUMMARY_PREFIX.length);
@@ -223,7 +250,7 @@ export class Assistant implements MessageHandler {
     if (deleted) {
       this.deps.logger.info({ id: deleted.id }, 'último lançamento desfeito');
     }
-    return { text: formatUndoneLast(deleted) };
+    return this.afterChange({ text: formatUndoneLast(deleted) });
   }
 
   async handleAccounts(): Promise<OutgoingMessage> {
@@ -259,6 +286,49 @@ export class Assistant implements MessageHandler {
 
   handleRecurring(): Promise<OutgoingMessage> {
     return this.recurringFlow.menu();
+  }
+
+  handleSpreadsheet(): Promise<OutgoingMessage> {
+    const { sheets } = this.deps;
+    if (!sheets) {
+      return Promise.resolve({
+        text: '📄 A planilha ainda não está configurada. O passo a passo está no README do projeto, na seção "Planilha Google".',
+      });
+    }
+    const { lastSyncAt, lastError } = sheets.status();
+    const lines = [`📄 Sua planilha:\n${sheets.url()}`, ''];
+    lines.push(
+      lastSyncAt
+        ? `Última sincronização: ${this.formatTime(lastSyncAt)}`
+        : 'Ainda não sincronizou desde que o bot ligou.',
+    );
+    if (lastError) lines.push('', sheets.failureMessage(lastError));
+    return Promise.resolve({
+      text: lines.join('\n'),
+      actions: [[{ label: '🔄 Sincronizar agora', id: SPREADSHEET_SYNC_ACTION }]],
+    });
+  }
+
+  handleCharts(): Promise<OutgoingMessage> {
+    const { sheets } = this.deps;
+    if (!sheets) return this.handleSpreadsheet();
+    return Promise.resolve({
+      text: `📈 Seus gráficos (atualizados a cada lançamento):\n${sheets.url('charts')}`,
+    });
+  }
+
+  /** Depois de qualquer mudança, pede para a planilha sincronizar (junta mudanças seguidas). */
+  private afterChange<T>(reply: T): T {
+    this.deps.sheets?.requestSync();
+    return reply;
+  }
+
+  private formatTime(date: Date): string {
+    return new Intl.DateTimeFormat('pt-BR', {
+      dateStyle: 'short',
+      timeStyle: 'short',
+      timeZone: this.deps.timeZone ?? 'America/Sao_Paulo',
+    }).format(date);
   }
 
   /** Mensagens avisando dos gastos fixos que a tarefa automática acabou de lançar. */

@@ -45,3 +45,28 @@ export function formatDayMonth(date: Date): string {
 export function formatDateOnly(date: Date): string {
   return new Intl.DateTimeFormat('pt-BR', { timeZone: 'UTC' }).format(date);
 }
+
+/** "2026-10" → "out/2026". */
+export function formatMonthShort(month: string): string {
+  const name = new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
+    .format(new Date(`${month}-01T00:00:00.000Z`))
+    .replace('.', '');
+  return `${name}/${month.slice(0, 4)}`;
+}
+
+/** "2026-09" → "setembro de 2026". */
+export function formatMonthLong(month: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${month}-01T00:00:00.000Z`));
+}
+
+/**
+ * Número de série de data das planilhas (dias desde 30/12/1899), para gravar datas como
+ * data de verdade (ordenável e com formato), e não como texto.
+ */
+export function toSheetSerial(dateOnly: string): number {
+  return (parseDateOnly(dateOnly).getTime() - Date.UTC(1899, 11, 30)) / MS_PER_DAY;
+}

@@ -4,7 +4,9 @@ import { GeminiTransactionParser } from './ai/gemini-transaction-parser.js';
 import { Assistant } from './assistant/assistant.js';
 import { TelegramChannel } from './channels/telegram/telegram-channel.js';
 import { loadEnv, type Env } from './config/env.js';
+import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
 import { recurringJob } from './jobs/recurring.job.js';
+import { sheetRefreshJob } from './jobs/sheet-refresh.job.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { toDateOnlyString } from './lib/dates.js';
 import { buildServer } from './http/server.js';
@@ -19,6 +21,7 @@ import { PrismaPendingRepository } from './modules/pending/pending.repository.js
 import { PrismaRecurringRepository } from './modules/recurring/recurring.repository.js';
 import { RecurringService } from './modules/recurring/recurring.service.js';
 import { ReportService } from './modules/reports/report.service.js';
+import { createSheetSync } from './modules/sheets/create-sheet-sync.js';
 import { PrismaTransactionRepository } from './modules/transactions/transaction.repository.js';
 import { TransactionService } from './modules/transactions/transaction.service.js';
 
@@ -55,6 +58,7 @@ async function main(): Promise<void> {
     app.log.info({ reason }, 'encerrando');
     try {
       scheduler.stop();
+      sheets?.stop();
       await channel.stop();
       await app.close();
     } catch (error) {
@@ -73,6 +77,26 @@ async function main(): Promise<void> {
   );
   const recurring = new RecurringService(new PrismaRecurringRepository(prisma), transactions);
   const today = () => toDateOnlyString(new Date(), env.APP_TIMEZONE);
+  const reports = new ReportService(transactionRepository, accounts);
+  const budgets = new BudgetService(new PrismaBudgetRepository(prisma));
+
+  // Planilha Google (opcional). As mensagens de falha vão para o chat, que é criado
+  // mais abaixo: por isso o envio chama `channel` só na hora de avisar.
+  const sheets = createSheetSync({
+    env,
+    logger: app.log,
+    deps: {
+      transactions: transactionRepository,
+      accounts,
+      reports,
+      budgets,
+      jobState: new PrismaJobStateRepository(prisma),
+      notify: (message) => channel.notify(message),
+      logger: app.log,
+      today,
+      timeZone: env.APP_TIMEZONE,
+    },
+  });
 
   const assistant = new Assistant({
     parser: new GeminiTransactionParser({
@@ -87,10 +111,11 @@ async function main(): Promise<void> {
     pending: new PrismaPendingRepository(prisma),
     chatState: new PrismaChatStateRepository(prisma),
     recurring,
-    reports: new ReportService(transactionRepository, accounts),
-    budgets: new BudgetService(new PrismaBudgetRepository(prisma)),
+    reports,
+    budgets,
     logger: app.log,
     timeZone: env.APP_TIMEZONE,
+    ...(sheets ? { sheets } : {}),
   });
 
   const channel = new TelegramChannel({
@@ -107,9 +132,18 @@ async function main(): Promise<void> {
   process.once('SIGINT', (signal) => void shutdown(signal, 0));
   process.once('SIGTERM', (signal) => void shutdown(signal, 0));
 
-  // Tarefas automáticas (gastos fixos). Só começam depois que o canal consegue enviar.
+  // Tarefas automáticas. Só começam depois que o canal consegue enviar.
   const scheduler = new Scheduler(
-    [recurringJob({ recurring, assistant, notifier: channel, today })],
+    [
+      recurringJob({
+        recurring,
+        assistant,
+        notifier: channel,
+        today,
+        onChange: () => sheets?.requestSync(),
+      }),
+      ...(sheets ? [sheetRefreshJob(sheets)] : []),
+    ],
     app.log,
   );
 

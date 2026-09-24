@@ -65,6 +65,14 @@ export class InMemoryTransactionRepository implements TransactionRepository {
     );
   }
 
+  listAll(): Promise<Transaction[]> {
+    return Promise.resolve(
+      this.rows.toSorted(
+        (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime() || b.id.localeCompare(a.id),
+      ),
+    );
+  }
+
   listForReports() {
     return Promise.resolve([...this.rows]);
   }

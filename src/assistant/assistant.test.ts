@@ -878,4 +878,13 @@ describe('Assistant', () => {
       expect(created.text).toContain('05/10/2026');
     });
   });
+
+  describe('/planilha e /grafico', () => {
+    it('sem planilha configurada, explica onde configurar', async () => {
+      const { assistant } = setup();
+
+      expect((await assistant.handleSpreadsheet()).text).toContain('ainda não está configurada');
+      expect((await assistant.handleCharts()).text).toContain('ainda não está configurada');
+    });
+  });
 });

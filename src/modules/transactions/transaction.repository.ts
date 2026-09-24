@@ -41,6 +41,8 @@ export interface TransactionRepository {
   listPurchasesByAccount(accountId: number): Promise<CreditPurchase[]>;
   /** Todos os lançamentos, só com os campos dos relatórios. */
   listForReports(): Promise<ReportTransaction[]>;
+  /** Todos os lançamentos completos, do mais recente para o mais antigo (planilha). */
+  listAll(): Promise<Transaction[]>;
 }
 
 /**
@@ -115,6 +117,12 @@ export class PrismaTransactionRepository implements TransactionRepository {
         installments: true,
         occurredAt: true,
       },
+    });
+  }
+
+  listAll(): Promise<Transaction[]> {
+    return this.prisma.transaction.findMany({
+      orderBy: [{ occurredAt: 'desc' }, ...LATEST_FIRST],
     });
   }
 }

@@ -9,6 +9,8 @@ export function recurringJob(deps: {
   assistant: Pick<Assistant, 'announceRecurring'>;
   notifier: Notifier;
   today: () => string;
+  /** Chamado quando algo foi lançado (ex.: sincronizar a planilha). */
+  onChange?: () => void;
 }): Job {
   return {
     name: 'gastos-fixos',
@@ -18,6 +20,7 @@ export function recurringJob(deps: {
       for (const message of await deps.assistant.announceRecurring(runs)) {
         await deps.notifier.notify(message);
       }
+      if (runs.length > 0) deps.onChange?.();
     },
   };
 }

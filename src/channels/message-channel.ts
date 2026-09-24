@@ -57,6 +57,10 @@ export interface MessageHandler {
   handleBudgets(): Promise<OutgoingMessage>;
   /** Menu de gastos fixos. */
   handleRecurring(): Promise<OutgoingMessage>;
+  /** Link e situação da planilha Google. */
+  handleSpreadsheet(): Promise<OutgoingMessage>;
+  /** Link da aba de gráficos. */
+  handleCharts(): Promise<OutgoingMessage>;
 }
 
 /** Envia mensagens por iniciativa do bot (gastos fixos, aviso do dia 1, alertas). */

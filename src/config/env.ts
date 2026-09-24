@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseSpreadsheetId } from '../modules/sheets/spreadsheet-gateway.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -30,6 +31,13 @@ const envSchema = z.object({
         .map((model) => model.trim())
         .filter(Boolean),
     ),
+
+  // Planilha Google (opcional). Aceita o ID ou o link inteiro da planilha.
+  GOOGLE_SHEETS_ID: z
+    .string()
+    .optional()
+    .transform((value) => (value?.trim() ? parseSpreadsheetId(value) : undefined)),
+  GOOGLE_SERVICE_ACCOUNT_FILE: z.string().min(1).default('secrets/google-service-account.json'),
 
   APP_TIMEZONE: z
     .string()

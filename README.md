@@ -61,6 +61,9 @@ Bot:   ✅ Registrado:
   avisa quando passar de 80% e de 100%.
 - **Gastos fixos automáticos:** cadastre aluguel, assinaturas, academia… uma vez, e o bot
   lança sozinho todo mês no dia certo, avisando com um botão Desfazer.
+- **Planilha Google ao vivo (opcional):** tudo que você registra aparece numa planilha
+  sua, com resumo do mês, categorias, cartões, investimentos e gráficos que se atualizam
+  sozinhos. Veja [Planilha Google](#planilha-google).
 - **Desfaz fácil:** cada registro tem um botão "Desfazer", e o comando `/desfazer` apaga o
   último lançamento.
 
@@ -220,6 +223,8 @@ fatura como paga (o que libera o limite dela).
 | `/resumo`    | O mês: receitas, despesas, sobra, investido e saldos                 |
 | `/orcamento` | Limites mensais por categoria, com aviso aos 80% e 100%              |
 | `/fixos`     | Gastos fixos que o bot lança sozinho todo mês                        |
+| `/planilha`  | Link da sua planilha e situação da sincronização                     |
+| `/grafico`   | Link direto para os gráficos da planilha                             |
 | `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
 | `/ultimos`   | Seus 10 últimos lançamentos                                          |
 | `/desfazer`  | Apaga o último lançamento                                            |
@@ -231,6 +236,57 @@ e diga o dia do mês. Se o computador estiver desligado no dia, o bot lança qua
 
 **Pagar a fatura não é um gasto novo** (os gastos já foram registrados nas compras). Quando
 pagar, use `/cartoes → Gerenciar → o cartão → Paguei a fatura`.
+
+## Planilha Google
+
+Opcional, gratuito e leva uns 10 minutos, uma vez só. O bot escreve numa planilha **sua**,
+no **seu** Google Drive, usando uma "conta de serviço": um usuário-robô que só enxerga as
+planilhas que você compartilhar com ele.
+
+### 1. Crie a conta de serviço no Google Cloud
+
+1. Entre em [console.cloud.google.com](https://console.cloud.google.com) com a sua conta
+   Google e crie um projeto (ex.: `bot-financeiro`). Não precisa de cartão de crédito.
+2. No menu, vá em **APIs e serviços → Biblioteca**, procure **Google Sheets API** e clique
+   em **Ativar**.
+3. Vá em **APIs e serviços → Credenciais → Criar credenciais → Conta de serviço**. Dê um
+   nome (ex.: `bot-financeiro`) e conclua. Não precisa dar nenhum papel/permissão.
+4. Clique na conta criada, abra a aba **Chaves → Adicionar chave → Criar nova chave → JSON**.
+   Um arquivo `.json` será baixado.
+5. Renomeie o arquivo para `google-service-account.json` e coloque-o na pasta `secrets/`
+   do projeto. **Não compartilhe esse arquivo**: ele dá acesso de escrita às planilhas
+   compartilhadas com a conta.
+
+### 2. Crie a planilha e compartilhe com o bot
+
+1. Crie uma planilha em branco em [sheets.google.com](https://sheets.google.com).
+2. Clique em **Compartilhar** e cole o e-mail da conta de serviço. Ele está no arquivo JSON,
+   no campo `client_email`, e termina com `iam.gserviceaccount.com`. Escolha **Editor** e
+   envie.
+3. Copie o link da planilha (a barra de endereço do navegador) e cole no `.env`:
+   ```env
+   GOOGLE_SHEETS_ID=https://docs.google.com/spreadsheets/d/...
+   ```
+
+### 3. Reinicie o bot
+
+```bash
+docker compose --profile app up -d
+```
+
+Em alguns segundos a planilha ganha as abas **Gráficos, Resumo, Lançamentos, Categorias,
+Cartões e vales** e **Investimentos**. Mande `/planilha` no Telegram para ver o link e a
+última sincronização, e `/grafico` para ir direto aos gráficos.
+
+Como funciona:
+
+- A planilha é atualizada poucos segundos depois de cada lançamento, e também a cada 10
+  minutos (é o que vira o mês na planilha).
+- O banco do bot continua sendo a fonte da verdade: por enquanto, **alterações feitas à mão
+  nas abas do bot são sobrescritas**. Você pode criar abas próprias à vontade, que o bot
+  não mexe nelas.
+- Se a sincronização falhar (planilha não compartilhada, sem internet), o bot avisa uma
+  vez no Telegram com a causa e sincroniza sozinho quando voltar. Nada se perde.
 
 ## Deixar ligado o tempo todo
 
@@ -299,6 +355,9 @@ docker compose exec db psql -U financeiro -f /tmp/backup.sql financeiro
 | "Atingi o limite de uso gratuito"                 | Muitas mensagens em pouco tempo. Espere um minuto.                                                                                    |
 | `port is already allocated` ou erro 409           | Outra cópia do bot, ou outro programa, está usando a porta 3000 (bot) ou 5432 (banco). Feche-o, ou deixe só uma cópia do bot rodando. |
 | O disponível do cartão não bate com o banco       | `/cartoes → Gerenciar → o cartão → Ajustar disponível`.                                                                               |
+
+| A planilha não atualiza | `/planilha` mostra o motivo. O mais comum é não ter compartilhado a planilha como **Editor** com o `client_email` do JSON. |
+| "Criação de chave desativada" no Google Cloud | Contas de empresa/escola podem bloquear chaves de conta de serviço. Use uma conta Google pessoal. |
 
 **Mudou o `.env`?** Rode `docker compose --profile app up -d` para o bot ler os valores novos.
 

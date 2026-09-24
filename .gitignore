@@ -7,3 +7,5 @@ src/generated
 
 # Segredos
 .env
+secrets/*
+!secrets/README.md

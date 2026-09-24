@@ -3,4 +3,5 @@ dist
 coverage
 src/generated
 .env
+secrets
 .git
