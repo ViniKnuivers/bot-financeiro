@@ -103,19 +103,24 @@ enum AccountKind {
 model Account {
   // Inteiro (e não UUID) de propósito: vai no callback_data dos botões do Telegram,
   // que tem limite de 64 bytes, junto com o id da pendência.
-  id                  Int           @id @default(autoincrement())
-  name                String
-  kind                AccountKind
+  id                    Int              @id @default(autoincrement())
+  name                  String
+  kind                  AccountKind
   // VR/VA: saldo informado no cadastro (ou no "Ajustar saldo"). O saldo atual é sempre
   // calculado: inicial + receitas - despesas. Nunca é guardado pronto.
-  initialBalanceCents Int           @default(0)
-  // Crédito (fase B).
-  creditLimitCents    Int?
-  closingDay          Int?
+  initialBalanceCents   Int              @default(0)
+  // Crédito: limite e dia de fechamento da fatura (opcionais: sem eles, o bot só
+  // registra em qual cartão foi).
+  creditLimitCents      Int?
+  closingDay            Int?
+  // Diferença informada pelo usuário ("Ajustar disponível") para o disponível calculado
+  // bater com o do banco, que conhece compras de antes do cadastro.
+  creditAdjustmentCents Int              @default(0)
   // Remover no menu arquiva, para não perder o histórico das transações.
-  archivedAt          DateTime?     @db.Timestamptz(3)
-  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
-  transactions        Transaction[]
+  archivedAt            DateTime?        @db.Timestamptz(3)
+  createdAt             DateTime         @default(now()) @db.Timestamptz(3)
+  transactions          Transaction[]
+  invoicePayments       InvoicePayment[]
 
   @@map("accounts")
 }
@@ -143,4 +148,18 @@ model ChatState {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("chat_state")
+}
+
+/// Fatura de cartão de crédito marcada como paga ("Paguei a fatura"): libera o limite
+/// das compras daquela fatura.
+model InvoicePayment {
+  id           Int      @id @default(autoincrement())
+  accountId    Int
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  // Mês em que a fatura fecha, "YYYY-MM".
+  invoiceMonth String
+  paidAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([accountId, invoiceMonth])
+  @@map("invoice_payments")
 }

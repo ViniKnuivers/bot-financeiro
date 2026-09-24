@@ -5,10 +5,10 @@ import { formatCents } from '../lib/money.js';
 import {
   ACCOUNT_KIND_ICONS,
   accountLabel,
-  isVoucher,
   normalizeName,
 } from '../modules/accounts/account-kinds.js';
 import type { Account } from '../modules/accounts/account.repository.js';
+import type { CreditSummary } from '../modules/accounts/credit-invoice.js';
 import type { PendingDraft } from '../modules/pending/pending.repository.js';
 import type { Question } from '../modules/payments/payment-resolver.js';
 import {
@@ -173,14 +173,60 @@ export function formatPendingFooter(count: number): string {
     : `\n\n⏳ ${count} lançamentos esperando resposta: /pendentes`;
 }
 
-/** Linha de uma conta no menu /cartoes. `balanceCents` só para vales. */
-export function formatAccountLine(account: Account, balanceCents?: number): string {
-  const icon = ACCOUNT_KIND_ICONS[account.kind];
-  if (isVoucher(account.kind)) {
-    return `${icon} ${accountLabel(account)}: saldo ${formatCents(balanceCents ?? 0)}`;
+export interface AccountDetails {
+  /** Saldo, só para vales. */
+  balanceCents?: number;
+  /** Fatura e disponível, só para crédito (null se o fechamento não foi configurado). */
+  credit?: CreditSummary | null;
+}
+
+/** "2026-10" → "out/2026". */
+export function formatMonth(month: string): string {
+  const name = new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'UTC' })
+    .format(new Date(`${month}-01T00:00:00.000Z`))
+    .replace('.', '');
+  return `${name}/${month.slice(0, 4)}`;
+}
+
+/** "2026-10-05" → "05/10". */
+function formatShortDate(date: string): string {
+  return `${date.slice(8, 10)}/${date.slice(5, 7)}`;
+}
+
+/** "fatura R$ 820,00 (fecha 05/10) · disponível R$ 2.180,00" */
+function creditDetails(summary: CreditSummary): string {
+  const parts = [
+    `fatura ${formatCents(summary.openInvoiceCents)} (fecha ${formatShortDate(summary.openInvoiceClosesOn)})`,
+  ];
+  if (summary.availableCents !== null) {
+    parts.push(`disponível ${formatCents(summary.availableCents)}`);
   }
-  const detail = account.kind === 'BANK' ? ': débito e pix' : '';
-  return `${icon} ${accountLabel(account)}${detail}`;
+  return parts.join(' · ');
+}
+
+/** Linha de uma conta no menu /cartoes. */
+export function formatAccountLine(account: Account, details: AccountDetails = {}): string {
+  const icon = ACCOUNT_KIND_ICONS[account.kind];
+  const label = accountLabel(account);
+  switch (account.kind) {
+    case 'MEAL_VOUCHER':
+    case 'FOOD_VOUCHER':
+      return `${icon} ${label}: saldo ${formatCents(details.balanceCents ?? 0)}`;
+    case 'BANK':
+      return `${icon} ${label}: débito e pix`;
+    case 'CREDIT_CARD':
+      return details.credit
+        ? `${icon} ${label}: ${creditDetails(details.credit)}`
+        : `${icon} ${label}: configure o fechamento em ⚙️ Gerenciar`;
+  }
+}
+
+/** Depois de uma compra no crédito: "💳 Santander: fatura R$ 820,00 (fecha 05/10) · …". */
+export function formatCreditAfterPurchase(account: Account, summary: CreditSummary | null): string {
+  if (!summary) {
+    return `💳 Configure o fechamento do ${account.name} em /cartoes para eu mostrar a fatura.`;
+  }
+  return `💳 ${account.name}: ${creditDetails(summary)}`;
 }
 
 const PARSER_ERROR_MESSAGES: Record<TransactionParserErrorReason, string> = {

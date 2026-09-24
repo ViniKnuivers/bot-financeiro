@@ -7,6 +7,7 @@ import { loadEnv, type Env } from './config/env.js';
 import { buildServer } from './http/server.js';
 import { createPrismaClient } from './lib/prisma.js';
 import { PrismaAccountRepository } from './modules/accounts/account.repository.js';
+import { PrismaInvoicePaymentRepository } from './modules/accounts/invoice-payment.repository.js';
 import { AccountService } from './modules/accounts/account.service.js';
 import { PrismaChatStateRepository } from './modules/conversation/chat-state.repository.js';
 import { PrismaPendingRepository } from './modules/pending/pending.repository.js';
@@ -64,10 +65,15 @@ async function main(): Promise<void> {
       logger: app.log,
     }),
     transactions: new TransactionService(transactionRepository),
-    accounts: new AccountService(new PrismaAccountRepository(prisma), transactionRepository),
+    accounts: new AccountService(
+      new PrismaAccountRepository(prisma),
+      transactionRepository,
+      new PrismaInvoicePaymentRepository(prisma),
+    ),
     pending: new PrismaPendingRepository(prisma),
     chatState: new PrismaChatStateRepository(prisma),
     logger: app.log,
+    timeZone: env.APP_TIMEZONE,
   });
 
   const channel = new TelegramChannel({

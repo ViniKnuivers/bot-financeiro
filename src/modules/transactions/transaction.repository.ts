@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient, Transaction } from '../../generated/prisma/client.js';
+import type { CreditPurchase } from '../accounts/credit-invoice.js';
 import type {
   Category,
   InputSource,
@@ -37,6 +38,8 @@ export interface TransactionRepository {
   deleteLatest(): Promise<Transaction | null>;
   /** Totais de entradas e saídas de uma conta (base do saldo de VR/VA). */
   sumByAccount(accountId: number): Promise<AccountTotals>;
+  /** Compras (despesas) de um cartão, para calcular faturas e limite. */
+  listPurchasesByAccount(accountId: number): Promise<CreditPurchase[]>;
 }
 
 /**
@@ -85,5 +88,12 @@ export class PrismaTransactionRepository implements TransactionRepository {
     const total = (type: string) =>
       groups.find((group) => group.type === type)?._sum.amountCents ?? 0;
     return { incomeCents: total('INCOME'), expenseCents: total('EXPENSE') };
+  }
+
+  listPurchasesByAccount(accountId: number): Promise<CreditPurchase[]> {
+    return this.prisma.transaction.findMany({
+      where: { accountId, type: 'EXPENSE' },
+      select: { amountCents: true, installments: true, occurredAt: true },
+    });
   }
 }

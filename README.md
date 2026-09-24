@@ -38,6 +38,10 @@ com as suas próprias chaves e o seu próprio banco. Nada é compartilhado com o
   crédito, Santander só crédito) e cite pelo nome: "tênis 300 em 3x no santander".
 - **VR e VA com saldo.** "recebi 600 de VA" e, a cada compra no VA, o bot mostra quanto
   sobrou. O saldo acumula de um mês para o outro.
+- **Fatura e limite do crédito.** Informe o limite e o dia de fechamento do cartão e, a cada
+  compra, o bot mostra `💳 Santander: fatura R$ 820,00 (fecha 05/10) · disponível R$ 2.180,00`.
+  Compras parceladas entram na fatura pela parcela, mas reservam o total no limite (como o
+  banco faz). Em `/cartoes` você marca uma fatura como paga, o que libera o limite.
 - **Compras parceladas.** "300 em 3x" guarda o total e o número de parcelas.
 - **Desfazer.** Botão em cada registro, e o comando `/desfazer` para o último lançamento.
 - **Auditoria.** Cada transação guarda o texto original (ou a transcrição do áudio) e a origem.
@@ -46,13 +50,13 @@ com as suas próprias chaves e o seu próprio banco. Nada é compartilhado com o
 
 ### Comandos
 
-| Comando      | O que faz                                                 |
-| ------------ | --------------------------------------------------------- |
-| `/start`     | Boas-vindas e exemplos                                    |
-| `/cartoes`   | Cartões e contas: cadastrar, remover, saldos de VR/VA     |
-| `/pendentes` | Lançamentos esperando você responder a forma de pagamento |
-| `/ultimos`   | Seus 10 últimos lançamentos                               |
-| `/desfazer`  | Apaga o último lançamento registrado                      |
+| Comando      | O que faz                                                                        |
+| ------------ | -------------------------------------------------------------------------------- |
+| `/start`     | Boas-vindas e exemplos                                                           |
+| `/cartoes`   | Cartões e contas: cadastrar, renomear, remover, saldos de VR/VA, fatura e limite |
+| `/pendentes` | Lançamentos esperando você responder a forma de pagamento                        |
+| `/ultimos`   | Seus 10 últimos lançamentos                                                      |
+| `/desfazer`  | Apaga o último lançamento registrado                                             |
 
 ### Categorias
 
@@ -257,6 +261,13 @@ src/
 - **Passos de conversa expiram.** Depois de "Qual o nome do cartão?", o próximo texto é o
   nome. Se você esquecer de responder, em 15 minutos o bot volta a tratar textos como
   lançamentos.
+- **Fatura calculada, não guardada.** Cada compra cai na fatura que fecha no mesmo mês, se
+  foi antes do dia de fechamento, ou na do mês seguinte. A parcela k cai k meses depois, e a
+  primeira fica com o resto da divisão (100,00 em 3x = 33,34 + 33,33 + 33,33). Tudo isso sai
+  de funções puras em `credit-invoice.ts`, a partir das transações e das faturas pagas.
+- **Limitação do disponível.** O bot não conhece compras feitas antes de o cartão ser
+  cadastrado, nem pagamentos parciais de fatura. Para o valor bater com o do banco, use
+  `/cartoes → Gerenciar → Ajustar disponível`: o bot guarda a diferença como ajuste.
 - **Filtro de usuário e de chat privado.** Mensagens de outras pessoas são ignoradas sem
   resposta. O bot também ignora grupos, para seus gastos não aparecerem para outros.
 

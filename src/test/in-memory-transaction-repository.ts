@@ -48,6 +48,18 @@ export class InMemoryTransactionRepository implements TransactionRepository {
     return Promise.resolve({ incomeCents: sum('INCOME'), expenseCents: sum('EXPENSE') });
   }
 
+  listPurchasesByAccount(accountId: number) {
+    return Promise.resolve(
+      this.rows
+        .filter((row) => row.accountId === accountId && row.type === 'EXPENSE')
+        .map(({ amountCents, installments, occurredAt }) => ({
+          amountCents,
+          installments,
+          occurredAt,
+        })),
+    );
+  }
+
   private remove(predicate: (row: Transaction) => boolean): void {
     const kept = this.rows.filter((row) => !predicate(row));
     this.rows.splice(0, this.rows.length, ...kept);

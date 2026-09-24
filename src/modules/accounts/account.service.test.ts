@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { InMemoryAccountRepository } from '../../test/in-memory-repositories.js';
+import {
+  InMemoryAccountRepository,
+  InMemoryInvoicePaymentRepository,
+} from '../../test/in-memory-repositories.js';
 import { InMemoryTransactionRepository } from '../../test/in-memory-transaction-repository.js';
 import { AccountError, AccountService } from './account.service.js';
 
 function setup() {
   const accounts = new InMemoryAccountRepository();
   const transactions = new InMemoryTransactionRepository();
-  return { accounts, transactions, service: new AccountService(accounts, transactions) };
+  const invoices = new InMemoryInvoicePaymentRepository();
+  return {
+    accounts,
+    transactions,
+    service: new AccountService(accounts, transactions, invoices),
+  };
 }
 
 async function addTransaction(
@@ -72,7 +80,7 @@ describe('AccountService', () => {
   describe('saldo de vale', () => {
     it('saldo = inicial + recargas - gastos', async () => {
       const { service, transactions } = setup();
-      const [va] = await service.create('FOOD_VOUCHER', 'VA', 10000);
+      const [va] = await service.create('FOOD_VOUCHER', 'VA', { initialBalanceCents: 10000 });
       if (!va) throw new Error('VA não criado');
 
       await addTransaction(transactions, va.id, 'INCOME', 60000);
@@ -83,7 +91,7 @@ describe('AccountService', () => {
 
     it('ajustar faz o saldo calculado bater com o valor informado', async () => {
       const { service, transactions, accounts } = setup();
-      const [va] = await service.create('FOOD_VOUCHER', 'VA', 0);
+      const [va] = await service.create('FOOD_VOUCHER', 'VA', { initialBalanceCents: 0 });
       if (!va) throw new Error('VA não criado');
       await addTransaction(transactions, va.id, 'INCOME', 60000);
       await addTransaction(transactions, va.id, 'EXPENSE', 8000);
@@ -98,7 +106,9 @@ describe('AccountService', () => {
     it('saldo inicial só vale para vales', async () => {
       const { service } = setup();
 
-      const [credito] = await service.create('CREDIT_CARD', 'Santander', 99999);
+      const [credito] = await service.create('CREDIT_CARD', 'Santander', {
+        initialBalanceCents: 99999,
+      });
 
       expect(credito?.initialBalanceCents).toBe(0);
     });

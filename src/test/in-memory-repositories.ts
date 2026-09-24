@@ -1,8 +1,10 @@
 import type {
   Account,
+  AccountPatch,
   AccountRepository,
   NewAccount,
 } from '../modules/accounts/account.repository.js';
+import type { InvoicePaymentRepository } from '../modules/accounts/invoice-payment.repository.js';
 import type {
   ChatStateRepository,
   ChatStateValue,
@@ -34,8 +36,7 @@ export class InMemoryAccountRepository implements AccountRepository {
     const created = items.map((item) => ({
       ...item,
       id: ++this.sequence,
-      creditLimitCents: null,
-      closingDay: null,
+      creditAdjustmentCents: 0,
       archivedAt: null,
       createdAt: new Date(),
     }));
@@ -49,9 +50,26 @@ export class InMemoryAccountRepository implements AccountRepository {
     return Promise.resolve();
   }
 
-  setInitialBalance(id: number, cents: number): Promise<void> {
+  update(id: number, patch: AccountPatch): Promise<void> {
     const row = this.rows.find((r) => r.id === id);
-    if (row) row.initialBalanceCents = cents;
+    if (row) Object.assign(row, patch);
+    return Promise.resolve();
+  }
+}
+
+export class InMemoryInvoicePaymentRepository implements InvoicePaymentRepository {
+  readonly paid: { accountId: number; invoiceMonth: string }[] = [];
+
+  listPaidMonths(accountId: number): Promise<string[]> {
+    return Promise.resolve(
+      this.paid.filter((p) => p.accountId === accountId).map((p) => p.invoiceMonth),
+    );
+  }
+
+  markPaid(accountId: number, invoiceMonth: string): Promise<void> {
+    if (!this.paid.some((p) => p.accountId === accountId && p.invoiceMonth === invoiceMonth)) {
+      this.paid.push({ accountId, invoiceMonth });
+    }
     return Promise.resolve();
   }
 }

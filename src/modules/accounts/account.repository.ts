@@ -7,15 +7,25 @@ export interface NewAccount {
   name: string;
   kind: AccountKind;
   initialBalanceCents: number;
+  creditLimitCents: number | null;
+  closingDay: number | null;
 }
+
+/** Campos que podem mudar depois do cadastro. */
+export type AccountPatch = Partial<
+  Pick<
+    Account,
+    'name' | 'initialBalanceCents' | 'creditLimitCents' | 'closingDay' | 'creditAdjustmentCents'
+  >
+>;
 
 export interface AccountRepository {
   listActive(): Promise<Account[]>;
   /** Inclui as arquivadas: lançamentos antigos ainda precisam do nome delas. */
   listAll(): Promise<Account[]>;
   createMany(items: NewAccount[]): Promise<Account[]>;
+  update(id: number, patch: AccountPatch): Promise<void>;
   archive(id: number): Promise<void>;
-  setInitialBalance(id: number, cents: number): Promise<void>;
 }
 
 const DISPLAY_ORDER = [{ kind: 'asc' as const }, { name: 'asc' as const }];
@@ -35,11 +45,11 @@ export class PrismaAccountRepository implements AccountRepository {
     return this.prisma.account.createManyAndReturn({ data: items });
   }
 
-  async archive(id: number): Promise<void> {
-    await this.prisma.account.update({ where: { id }, data: { archivedAt: new Date() } });
+  async update(id: number, patch: AccountPatch): Promise<void> {
+    await this.prisma.account.update({ where: { id }, data: patch });
   }
 
-  async setInitialBalance(id: number, cents: number): Promise<void> {
-    await this.prisma.account.update({ where: { id }, data: { initialBalanceCents: cents } });
+  async archive(id: number): Promise<void> {
+    await this.prisma.account.update({ where: { id }, data: { archivedAt: new Date() } });
   }
 }

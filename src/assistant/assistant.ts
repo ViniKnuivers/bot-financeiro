@@ -13,6 +13,7 @@ import type {
   OutgoingMessage,
 } from '../channels/message-channel.js';
 import type { InputSource } from '../generated/prisma/enums.js';
+import { toDateOnlyString } from '../lib/dates.js';
 import type { Logger } from '../lib/logger.js';
 import type { AccountService } from '../modules/accounts/account.service.js';
 import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
@@ -37,8 +38,10 @@ export interface AssistantDeps {
   pending: PendingRepository;
   chatState: ChatStateRepository;
   logger: Logger;
-  /** Relógio injetável, para testar a expiração dos passos de conversa. */
+  /** Relógio injetável, para testar a expiração dos passos de conversa e as faturas. */
   now?: () => Date;
+  /** Fuso do usuário, para saber que dia é hoje (fatura aberta). Padrão: São Paulo. */
+  timeZone?: string;
 }
 
 /**
@@ -51,12 +54,17 @@ export class Assistant implements MessageHandler {
   private readonly accountsFlow: AccountsFlow;
 
   constructor(private readonly deps: AssistantDeps) {
-    this.payments = new PaymentFlow(deps);
+    const now = deps.now ?? (() => new Date());
+    const timeZone = deps.timeZone ?? 'America/Sao_Paulo';
+    const today = () => toDateOnlyString(now(), timeZone);
+
+    this.payments = new PaymentFlow({ ...deps, today });
     this.accountsFlow = new AccountsFlow({
       accounts: deps.accounts,
       chatState: deps.chatState,
       logger: deps.logger,
-      ...(deps.now ? { now: deps.now } : {}),
+      now,
+      today,
     });
   }
 

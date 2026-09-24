@@ -25,6 +25,7 @@ import type {
 } from '../modules/transactions/transaction.service.js';
 import {
   formatBalances,
+  formatCreditAfterPurchase,
   formatDraftItems,
   formatPaymentQuestion,
   formatRegistered,
@@ -46,6 +47,8 @@ export interface PaymentFlowDeps {
   accounts: AccountService;
   transactions: TransactionService;
   logger: Logger;
+  /** Hoje ("YYYY-MM-DD") no fuso do usuário, para saber qual fatura está aberta. */
+  today: () => string;
 }
 
 export interface StartInput {
@@ -179,6 +182,7 @@ export class PaymentFlow {
 
     const balances = await this.voucherBalances(batch.transactions, accountsById);
     if (balances.length > 0) parts.push(formatBalances(balances));
+    parts.push(...(await this.creditLines(batch.transactions, accountsById)));
 
     const missingAccount = batch.transactions.some(
       (t) =>
@@ -196,14 +200,25 @@ export class PaymentFlow {
     };
   }
 
+  /** Uma linha por cartão de crédito usado: fatura aberta e disponível. */
+  private async creditLines(
+    saved: { accountId: number | null }[],
+    accountsById: ReadonlyMap<number, Account>,
+  ): Promise<string[]> {
+    const cards = uniqueAccounts(saved, accountsById).filter((a) => a.kind === 'CREDIT_CARD');
+    const today = this.deps.today();
+    return Promise.all(
+      cards.map(async (card) =>
+        formatCreditAfterPurchase(card, await this.deps.accounts.creditSummary(card, today)),
+      ),
+    );
+  }
+
   private async voucherBalances(
     saved: { accountId: number | null }[],
     accountsById: ReadonlyMap<number, Account>,
   ): Promise<{ account: Account; cents: number }[]> {
-    const ids = [...new Set(saved.map((t) => t.accountId))];
-    const vouchers = ids
-      .map((id) => (id === null ? undefined : accountsById.get(id)))
-      .filter((account): account is Account => account !== undefined && isVoucher(account.kind));
+    const vouchers = uniqueAccounts(saved, accountsById).filter((a) => isVoucher(a.kind));
     return Promise.all(
       vouchers.map(async (account) => ({
         account,
@@ -211,6 +226,17 @@ export class PaymentFlow {
       })),
     );
   }
+}
+
+/** As contas envolvidas num lote salvo, sem repetir. */
+function uniqueAccounts(
+  saved: { accountId: number | null }[],
+  accountsById: ReadonlyMap<number, Account>,
+): Account[] {
+  const ids = [...new Set(saved.map((t) => t.accountId))];
+  return ids
+    .map((id) => (id === null ? undefined : accountsById.get(id)))
+    .filter((account): account is Account => account !== undefined);
 }
 
 /** Aplica o botão tocado; null se ele não corresponde à pergunta atual. */
