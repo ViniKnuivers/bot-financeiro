@@ -1,6 +1,7 @@
 import type { AccountKind, PaymentMethod } from '../../generated/prisma/enums.js';
 import {
   ACCOUNT_KIND_BY_METHOD,
+  isVoucher,
   methodsForKind,
   normalizeName,
   VOUCHER_METHOD_BY_INCOME_CATEGORY,
@@ -33,6 +34,13 @@ export function resolveDraft(draft: PendingDraft, accounts: AccountRef[]): Draft
 
   // Receitas nunca perguntam nada. Receita de VR/VA cai no cartão do vale, se houver.
   if (draft.type === 'INCOME') {
+    // O cartão citado pelo nome vence a categoria: com um VR chamado "Alimentação",
+    // "recebi 600 de alimentação" vai para ele, e não para o VA.
+    const [namedVoucher, ...others] = named.filter((a) => isVoucher(a.kind));
+    if (namedVoucher && others.length === 0) {
+      const [voucherMethod = null] = methodsForKind(namedVoucher.kind);
+      return { status: 'resolved', paymentMethod: voucherMethod, accountId: namedVoucher.id };
+    }
     const method = VOUCHER_METHOD_BY_INCOME_CATEGORY[draft.category] ?? draft.paymentMethod;
     const candidates = method ? compatible(method, accounts, named) : [];
     const only = candidates.length === 1 ? candidates[0] : undefined;

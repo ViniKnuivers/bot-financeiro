@@ -142,6 +142,22 @@ describe('resolveDraft', () => {
       });
     });
 
+    it('o cartão citado pelo nome vence a categoria (VR chamado "Alimentação")', () => {
+      const alimentacao: AccountRef = { id: 10, name: 'Alimentação', kind: 'MEAL_VOUCHER' };
+      const mercado: AccountRef = { id: 11, name: 'Mercado', kind: 'FOOD_VOUCHER' };
+      const recarga = draft({
+        type: 'INCOME',
+        category: 'VALE_ALIMENTACAO',
+        account: 'alimentacao',
+      });
+
+      expect(resolveDraft(recarga, [alimentacao, mercado])).toEqual({
+        status: 'resolved',
+        paymentMethod: 'VR',
+        accountId: alimentacao.id,
+      });
+    });
+
     it('salário não pergunta forma de pagamento', () => {
       const salario = draft({ type: 'INCOME', category: 'SALARIO' });
 

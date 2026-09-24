@@ -132,6 +132,9 @@ Em receitas, use VR/VA só nas recargas de vale; nas demais, a forma citada ou n
 ${accountList(accounts)}
 Se a mensagem citar um deles ("no itaú", "no santander", "no VA"), preencha "account" com o
 nome EXATAMENTE como na lista. Caso contrário, null. Não invente nomes.
+Recarga de vale citando um cartão da lista pelo nome ("recebi 600 no Mercado"): use a
+categoria do TIPO desse cartão (vale-refeição → VALE_REFEICAO; vale-alimentação →
+VALE_ALIMENTACAO), mesmo que o nome do cartão lembre outra coisa.
 Citar só o nome (ex.: "no itaú") não define a forma: se o nome tiver mais de um tipo,
 deixe "paymentMethod" null; se tiver um só (ex.: um cartão de crédito), use a forma dele.
 
