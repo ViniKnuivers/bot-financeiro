@@ -1,5 +1,10 @@
 # Desenvolvimento:  docker compose up -d db        (só o Postgres; a app roda com `npm run dev`)
 # Tudo em Docker:   docker compose --profile app up -d --build
+
+# Nome fixo do projeto: sem ele, o Docker usa o nome da pasta, e baixar/renomear a pasta
+# (ex.: "bot-financeiro-main" do ZIP do GitHub) criaria um banco novo e vazio.
+name: financeiro
+
 services:
   db:
     image: postgres:18-alpine

@@ -1,0 +1,4 @@
+# Quebras de linha no formato Unix (LF) em qualquer sistema. Sem isso, o git no Windows
+# pode converter o .env.example para CRLF, e o token do .env ganharia um caractere
+# invisível no final.
+* text=auto eol=lf

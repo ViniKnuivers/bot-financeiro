@@ -1,169 +1,301 @@
 # bot-financeiro
 
-Assessor financeiro pessoal no Telegram. Você manda uma mensagem de texto ou de voz do
-jeito que falaria ("almoço 32 no pix e uber 18,50 ontem"), uma IA (Google Gemini)
-interpreta, e o bot registra os gastos e receitas num banco PostgreSQL.
+Seu assessor financeiro pessoal no Telegram. Você manda uma mensagem, de texto ou de voz,
+do jeito que falaria, e ele registra seus gastos e receitas, pergunta o que faltar e
+acompanha a fatura do cartão e o saldo do VR/VA.
 
 ```
-Você:  almoço 32 no pix e uber 18,50 ontem
+Você:  comprei uma cadeira de 500
 
-Bot:   ✅ Registrei 2 lançamentos:
+Bot:   🤔 Como você pagou?
+       • Cadeira: R$ 500,00
+       [⚡ Pix] [🏧 Débito] [💳 Crédito]
+       [🍽️ VR] [🛒 VA] [💵 Dinheiro]
+       [❔ Outro] [❌ Cancelar]
 
-       💸 Despesa · R$ 32,00
-       Almoço · Alimentação
-       📅 23/09/2026 · Pix
+       (você toca em 💳 Crédito e depois em Santander)
 
-       💸 Despesa · R$ 18,50
-       Uber · Transporte
-       📅 22/09/2026
-                                 [ ↩️ Desfazer ]
+Bot:   ✅ Registrado:
+       💸 Despesa · R$ 500,00
+       Cadeira · Compras
+       📅 24/09/2026 · Crédito Santander
+
+       💳 Santander: fatura R$ 820,00 (fecha 05/10) · disponível R$ 2.180,00
+       [↩️ Desfazer]
 ```
 
-Cada pessoa roda a **própria instância**: o bot responde a um único usuário do Telegram,
-com as suas próprias chaves e o seu próprio banco. Nada é compartilhado com o autor.
+## Antes de começar
 
-## Funcionalidades
+- **Cada pessoa tem o seu próprio bot.** Não existe um bot central: você cria o seu no
+  Telegram, e ele roda no **seu** computador, com os **seus** dados. Ninguém mais, nem o
+  autor deste projeto, tem acesso ao que você registra.
+- **É de graça.** O Telegram é gratuito, e a IA usada (Google Gemini) tem uma camada
+  gratuita que sobra para uso pessoal.
+- **Precisa de um computador ligado.** O bot funciona enquanto o computador onde ele roda
+  estiver ligado e conectado. Pode ser o seu notebook (Mac, Windows ou Linux) ou um
+  servidor. Veja [Deixar ligado o tempo todo](#deixar-ligado-o-tempo-todo).
+- **Leva uns 20 minutos** para configurar da primeira vez. Não precisa saber programar:
+  é só seguir os passos e copiar os comandos.
 
-- **Texto e voz.** Mensagens de voz vão direto para o Gemini, que transcreve e interpreta
-  de uma vez (sem serviço de transcrição separado).
-- **Várias transações por mensagem.** "ifood 45,90 e netflix 55" vira dois lançamentos.
-- **Datas relativas.** "ontem", "anteontem", "sexta", "dia 5", no fuso America/Sao_Paulo.
-- **Pergunta quando falta algo.** "gastei no mercado" → "Quanto você gastou no mercado?"
-  Nada é salvo até a informação estar completa.
-- **Pergunta a forma de pagamento.** "comprei cadeira 500" → botões [Pix] [Débito]
-  [Crédito] [VR] [VA]…; no crédito, pergunta **em qual cartão**. Só salva depois da
-  resposta, e só pergunta o que não dá para deduzir (Pix com uma única conta bancária, por
-  exemplo, já vai direto para ela).
-- **Cartões com nome.** Cadastre suas contas e cartões em `/cartoes` (ex.: Itaú com conta e
-  crédito, Santander só crédito) e cite pelo nome: "tênis 300 em 3x no santander".
-- **VR e VA com saldo.** "recebi 600 de VA" e, a cada compra no VA, o bot mostra quanto
+## O que ele faz
+
+- **Entende linguagem natural, em texto ou áudio:** "almoço 32 no pix", "ontem gastei 120
+  no mercado", "uber 18,50 e café 7" (vira dois lançamentos), "recebi 1500 do estágio".
+- **Pergunta o que faltar:** sem valor ("gastei no mercado"), ele pergunta quanto. Sem forma
+  de pagamento, mostra botões. No crédito, pergunta em qual cartão. **Nada é salvo antes de
+  você responder.**
+- **Conhece seus cartões:** cadastre suas contas e cartões uma vez e cite pelo nome
+  ("tênis 300 em 3x no santander"). O que dá para deduzir, ele não pergunta: se você só tem
+  uma conta, Pix e débito vão direto para ela.
+- **Acompanha o cartão de crédito:** a cada compra, mostra a fatura atual e quanto sobrou
+  de limite. Compras parceladas entram na fatura pela parcela e reservam o total no limite,
+  como o banco faz.
+- **Acompanha o VR e o VA:** "recebi 600 de VA" e, a cada compra no VA, ele mostra quanto
   sobrou. O saldo acumula de um mês para o outro.
-- **Fatura e limite do crédito.** Informe o limite e o dia de fechamento do cartão e, a cada
-  compra, o bot mostra `💳 Santander: fatura R$ 820,00 (fecha 05/10) · disponível R$ 2.180,00`.
-  Compras parceladas entram na fatura pela parcela, mas reservam o total no limite (como o
-  banco faz). Em `/cartoes` você marca uma fatura como paga, o que libera o limite.
-- **Compras parceladas.** "300 em 3x" guarda o total e o número de parcelas.
-- **Desfazer.** Botão em cada registro, e o comando `/desfazer` para o último lançamento.
-- **Auditoria.** Cada transação guarda o texto original (ou a transcrição do áudio) e a origem.
-- **Resiliente à camada gratuita.** Se o modelo principal do Gemini estiver sobrecarregado,
-  o bot tenta modelos reserva automaticamente.
+- **Desfaz fácil:** cada registro tem um botão "Desfazer", e o comando `/desfazer` apaga o
+  último lançamento.
 
-### Comandos
+## Instalação
 
-| Comando      | O que faz                                                                        |
-| ------------ | -------------------------------------------------------------------------------- |
-| `/start`     | Boas-vindas e exemplos                                                           |
-| `/cartoes`   | Cartões e contas: cadastrar, renomear, remover, saldos de VR/VA, fatura e limite |
-| `/pendentes` | Lançamentos esperando você responder a forma de pagamento                        |
-| `/ultimos`   | Seus 10 últimos lançamentos                                                      |
-| `/desfazer`  | Apaga o último lançamento registrado                                             |
+### 1. Instale o Docker Desktop
 
-### Categorias
+O Docker é o programa que roda o bot e o banco de dados no seu computador.
 
-- **Despesas:** Alimentação, Mercado, Transporte, Moradia, Contas, Saúde, Educação, Lazer,
-  Assinaturas, Compras, Outros.
-- **Receitas:** Salário, Estágio, Freela, Vale-refeição, Vale-alimentação, Outras receitas.
+1. Baixe em [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)
+   e instale como qualquer programa. No Windows, aceite o que o instalador pedir (ele pode
+   pedir para reiniciar o computador).
+2. Abra o **Docker Desktop** e espere até ele indicar que está rodando (o ícone da baleia
+   fica parado na barra de menus, no Mac, ou na bandeja do sistema, no Windows).
 
-## Como rodar o seu
+### 2. Crie o seu bot no Telegram
 
-Você vai precisar de [Docker](https://www.docker.com/products/docker-desktop/) instalado.
-Não precisa de Node.js para só usar o bot.
-
-### 1. Crie o bot no Telegram
-
-1. No Telegram, procure **@BotFather** (tem o selo azul de verificado) e toque em Iniciar.
+1. No Telegram, procure **@BotFather** (tem o selo azul de verificado) e toque em **Iniciar**.
 2. Mande `/newbot`.
-3. Escolha um nome (ex.: `Meu Financeiro`) e um username terminado em `bot`
-   (ex.: `financeiro_seunome_bot`).
-4. Ele responde com um **token** parecido com `8123456789:AAH...`. Guarde: ele dá controle
-   total do bot. Se vazar, mande `/revoke` para o BotFather e gere outro.
+3. Escolha um nome (ex.: `Meu Financeiro`) e depois um username terminado em `bot`
+   (ex.: `financeiro_seunome_bot`). Se ele disser que o username já existe, tente outro.
+4. Ele responde com um **token**, parecido com `8123456789:AAH...`. Copie e guarde: ele
+   dá controle total do seu bot. Não compartilhe com ninguém. Se vazar, mande `/revoke` para
+   o BotFather e gere outro.
 
-### 2. Descubra o seu user ID
+### 3. Descubra o seu número de usuário no Telegram
 
-Procure **@userinfobot** no Telegram e toque em Iniciar. Ele responde com o seu **Id**,
-um número como `123456789`. Só esse usuário vai conseguir falar com o bot.
+Procure **@userinfobot** no Telegram e toque em **Iniciar**. Ele responde com o seu **Id**,
+um número como `123456789`. O bot só vai responder a esse número: mensagens de qualquer
+outra pessoa são ignoradas.
 
-### 3. Crie a chave do Gemini
+### 4. Crie a chave da IA (Google Gemini)
 
-1. Entre em [aistudio.google.com/apikey](https://aistudio.google.com/apikey) com uma conta Google.
+1. Entre em [aistudio.google.com/apikey](https://aistudio.google.com/apikey) com uma conta
+   Google.
 2. Clique em **Create API key** e copie a chave.
 
-A camada gratuita é suficiente para uso pessoal. Atenção: nos termos da API do Gemini, o
-conteúdo enviado na camada gratuita pode ser usado pelo Google para melhorar os produtos.
-Isso não acontece se o faturamento estiver ativado no Google Cloud.
+> **Sobre privacidade:** nos termos da API do Gemini, o que é enviado na camada gratuita
+> (suas mensagens de gastos e áudios) pode ser usado pelo Google para melhorar os produtos.
+> Isso não acontece se você ativar o faturamento no Google Cloud.
 
-### 4. Baixe o projeto e configure
+### 5. Baixe o projeto
 
-```bash
-git clone https://github.com/ViniKnuivers/bot-financeiro.git
-cd bot-financeiro
-cp .env.example .env
-```
+Escolha **uma** das opções:
 
-Abra o `.env` e preencha, sem aspas e sem espaços:
+- **Sem precisar do git:** nesta página do GitHub, clique no botão verde **Code** e depois em
+  **Download ZIP**. Descompacte a pasta onde quiser (ex.: em Documentos).
+- **Com git** (facilita atualizar depois):
+  ```bash
+  git clone https://github.com/ViniKnuivers/bot-financeiro.git
+  ```
+
+Agora abra um terminal **dentro da pasta do projeto**:
+
+- **Mac:** abra o app **Terminal**, digite `cd ` (com um espaço no final), arraste a pasta
+  do projeto para a janela do Terminal e aperte Enter.
+- **Windows:** abra a pasta no Explorador de Arquivos, clique com o botão direito num espaço
+  vazio e escolha **Abrir no Terminal** (no Windows 10: segure Shift, clique com o botão
+  direito e escolha **Abrir janela do PowerShell aqui**).
+
+### 6. Coloque as suas chaves
+
+Crie o arquivo de configuração a partir do modelo:
+
+- **Mac/Linux:**
+  ```bash
+  cp .env.example .env
+  open -e .env
+  ```
+- **Windows:**
+  ```powershell
+  copy .env.example .env
+  notepad .env
+  ```
+
+No arquivo que abriu, preencha estas três linhas, logo depois do `=`, sem aspas e sem
+espaços:
 
 ```env
 TELEGRAM_BOT_TOKEN=8123456789:AAH...
 ALLOWED_TELEGRAM_USER_ID=123456789
-GEMINI_API_KEY=sua-chave
+GEMINI_API_KEY=sua-chave-do-gemini
 ```
 
-As outras variáveis já vêm com valores que funcionam.
+Salve e feche. Não mexa nas outras linhas: elas já vêm com valores que funcionam.
 
-### 5. Suba tudo
+### 7. Ligue o bot
+
+No terminal, ainda dentro da pasta do projeto:
 
 ```bash
 docker compose --profile app up -d --build
 ```
 
-Isso sobe o PostgreSQL, aplica as migrações do banco e inicia o bot. Confira:
+Da primeira vez, leva alguns minutos (ele baixa e prepara tudo). Nas próximas, é rápido.
+Para conferir se deu certo, abra [localhost:3000/health](http://localhost:3000/health) no
+navegador: deve aparecer `{"status":"ok","database":"up"}`.
+
+### 8. Teste
+
+Abra o seu bot no Telegram (procure pelo username que você criou), toque em **Iniciar** e
+mande `almoço 32 em dinheiro`. Se ele responder com o resumo e o botão Desfazer, está
+funcionando! 🎉
+
+## Como usar
+
+### Primeiro: cadastre seus cartões
+
+Mande `/cartoes` e toque em **➕ Adicionar**. Os tipos são:
+
+| Tipo                  | Para quê                                                       |
+| --------------------- | -------------------------------------------------------------- |
+| 🏦 Conta (débito/pix) | Uma conta bancária, de onde saem o débito e o pix              |
+| 💳 Crédito            | Um cartão de crédito                                           |
+| 🏦💳 Conta + crédito  | Banco em que você tem as duas coisas (cria as duas de uma vez) |
+| 🍽️ VR                 | Vale-refeição, com saldo                                       |
+| 🛒 VA                 | Vale-alimentação, com saldo                                    |
+
+- **No crédito**, o bot pede o **limite** e o **dia de fechamento da fatura** (os dois estão
+  no app do banco). Com eles, ele mostra a fatura e o disponível a cada compra. Dá para pular
+  e configurar depois.
+- **No VR e no VA**, ele pede o saldo atual.
+- **Depois de cadastrar um cartão de crédito**, vá em **⚙️ Gerenciar → o cartão → Ajustar
+  disponível** e digite o valor que o app do banco mostra. O bot não conhece as compras que
+  você fez antes de começar a usá-lo, e esse ajuste corrige a diferença.
+
+Em **⚙️ Gerenciar** você também renomeia, remove, ajusta o saldo do VR/VA e marca uma
+fatura como paga (o que libera o limite dela).
+
+> **Dica de nomes:** evite chamar o cartão de VR de "Alimentação", porque "vale-alimentação"
+> é o nome do VA, e a IA pode se confundir. Prefira "Refeição", o nome do app (ex.: "Flash")
+> ou simplesmente "VR" e "VA".
+
+### Exemplos de mensagens
+
+| Você manda                     | O bot faz                                                              |
+| ------------------------------ | ---------------------------------------------------------------------- |
+| `almoço 32 no pix`             | Registra na hora: Alimentação, Pix                                     |
+| `comprei cadeira 500`          | Pergunta a forma de pagamento com botões                               |
+| `tênis 300 em 3x no santander` | Registra no crédito do Santander, em 3 parcelas                        |
+| `mercado 80 no VA`             | Registra e mostra quanto sobrou no VA                                  |
+| `recebi 600 de VA`             | Soma no saldo do VA                                                    |
+| `recebi 1500 do estágio`       | Registra uma receita                                                   |
+| `ontem gastei 45 no ifood`     | Usa a data de ontem                                                    |
+| `uber 18 e café 7`             | Registra dois lançamentos (e pergunta a forma de pagamento uma vez só) |
+| 🎙️ Mensagem de voz             | Mesmo resultado, mostrando o que ele entendeu do áudio                 |
+
+### Comandos
+
+| Comando      | O que faz                                                            |
+| ------------ | -------------------------------------------------------------------- |
+| `/cartoes`   | Seus cartões e contas: cadastrar, gerenciar, saldos, fatura e limite |
+| `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
+| `/ultimos`   | Seus 10 últimos lançamentos                                          |
+| `/desfazer`  | Apaga o último lançamento                                            |
+| `/start`     | Boas-vindas e exemplos                                               |
+
+**Pagar a fatura não é um gasto novo** (os gastos já foram registrados nas compras). Quando
+pagar, use `/cartoes → Gerenciar → o cartão → Paguei a fatura`.
+
+## Deixar ligado o tempo todo
+
+O bot só responde enquanto o computador estiver ligado, acordado e com o Docker aberto.
+
+1. **Abrir o Docker sozinho:** no Docker Desktop, vá em **Settings → General** e marque
+   **Start Docker Desktop when you sign in**. O bot volta sozinho depois de reiniciar o
+   computador.
+2. **Não deixar o computador dormir:**
+   - **Windows:** Configurações → Sistema → Energia → coloque **Suspender** como **Nunca**
+     quando estiver na tomada.
+   - **Mac:** o macOS dorme ao fechar a tampa (a não ser com monitor externo). Para impedir,
+     rode no Terminal (vai pedir a senha do Mac):
+     ```bash
+     sudo pmset -a disablesleep 1
+     ```
+     Para voltar ao normal: `sudo pmset -a disablesleep 0`.
+   - Com o computador fechado e acordado, deixe-o na tomada e num lugar ventilado. Não
+     guarde na mochila assim.
+3. **Num servidor Linux (VPS):** os passos 5 a 7 funcionam igual em qualquer servidor com
+   Docker. O bot não precisa de domínio, HTTPS nem porta aberta.
+
+## Atualizar para uma versão nova
+
+- **Se você usou git:**
+  ```bash
+  git pull
+  docker compose --profile app up -d --build
+  ```
+- **Se você baixou o ZIP:** baixe o ZIP novo, descompacte, **copie o seu arquivo `.env`**
+  da pasta antiga para a nova e rode, na pasta nova:
+  ```bash
+  docker compose --profile app up -d --build
+  ```
+
+Seus dados ficam guardados no Docker, fora da pasta, então não se perdem ao atualizar. As
+mudanças no banco de dados são aplicadas sozinhas.
+
+## Backup dos seus dados
+
+Faça de vez em quando, principalmente antes de atualizar. Na pasta do projeto:
 
 ```bash
-curl localhost:3000/health          # {"status":"ok","database":"up"}
-docker compose logs -f app          # deve aparecer "telegram: bot ouvindo"
+docker compose exec db pg_dump -U financeiro --clean --if-exists -f /tmp/backup.sql financeiro
+docker compose cp db:/tmp/backup.sql ./backup.sql
 ```
 
-Abra o seu bot no Telegram e mande `/start`. Depois, cadastre seus cartões em `/cartoes`
-(opcional, mas é o que permite escolher o cartão e ver o saldo do VR/VA) e mande algo como
-`almoço 32 no pix`.
-
-### Deixar rodando o tempo todo
-
-Os containers reiniciam sozinhos se caírem (`restart: unless-stopped`). Para o bot
-sobreviver a um reinício do computador, o Docker precisa abrir sozinho:
-**Docker Desktop → Settings → General → Start Docker Desktop when you sign in**.
-
-**Num Mac com a tampa fechada:** por padrão o macOS dorme ao fechar a tampa (a não ser com
-monitor externo), e o bot para. Para impedir:
+Isso cria um arquivo `backup.sql` na pasta. Guarde-o num lugar seguro: ele tem todos os seus
+lançamentos. Para restaurar:
 
 ```bash
-sudo pmset -a disablesleep 1     # desfazer: sudo pmset -a disablesleep 0
+docker compose cp ./backup.sql db:/tmp/backup.sql
+docker compose exec db psql -U financeiro -f /tmp/backup.sql financeiro
 ```
 
-Deixe o Mac na tomada e em lugar ventilado: fechado e acordado, ele esquenta mais. Não
-guarde na mochila com isso ligado.
+## Solução de problemas
 
-**Num servidor Linux (VPS):** os mesmos passos 4 e 5 funcionam em qualquer servidor com
-Docker. O bot usa long polling, então não precisa de domínio, HTTPS nem porta aberta.
+| Problema                                          | O que fazer                                                                                                                           |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cannot connect to the Docker daemon` ou parecido | O Docker Desktop não está aberto. Abra e espere ele ficar pronto.                                                                     |
+| `no configuration file provided`                  | O terminal não está na pasta do projeto. Veja o passo 5.                                                                              |
+| O bot não responde a nada                         | Confira o `ALLOWED_TELEGRAM_USER_ID` no `.env` e se o bot está ligado ([localhost:3000/health](http://localhost:3000/health)).        |
+| `TELEGRAM_BOT_TOKEN inválido` nos logs            | Token copiado errado ou revogado. Pegue outro com o @BotFather.                                                                       |
+| "A chave do Gemini foi recusada"                  | Confira o `GEMINI_API_KEY` no `.env`.                                                                                                 |
+| "A IA está instável"                              | Os modelos gratuitos estão sobrecarregados. Tente de novo em alguns minutos.                                                          |
+| "Atingi o limite de uso gratuito"                 | Muitas mensagens em pouco tempo. Espere um minuto.                                                                                    |
+| `port is already allocated` ou erro 409           | Outra cópia do bot, ou outro programa, está usando a porta 3000 (bot) ou 5432 (banco). Feche-o, ou deixe só uma cópia do bot rodando. |
+| O disponível do cartão não bate com o banco       | `/cartoes → Gerenciar → o cartão → Ajustar disponível`.                                                                               |
 
-### Atualizar
+**Mudou o `.env`?** Rode `docker compose --profile app up -d` para o bot ler os valores novos.
 
-```bash
-git pull
-docker compose --profile app up -d --build
-```
+**Para ver o que o bot está fazendo** (útil para pedir ajuda): `docker compose logs -f app`.
+Os logs não mostram o seu token nem a chave do Gemini.
 
-Migrações novas do banco são aplicadas automaticamente antes de o bot subir.
+**Desligar o bot:** `docker compose --profile app down`. Os dados continuam guardados; para
+ligar de novo, repita o passo 7.
 
-### Comandos úteis
+---
 
-```bash
-docker compose logs -f app                 # logs do bot
-docker compose --profile app down          # para tudo (os dados continuam salvos)
-docker compose exec db psql -U financeiro  # acessa o banco direto
-```
+## Para desenvolvedores
 
-## Desenvolvimento
+Projeto de estudo e portfólio: TypeScript em modo estrito, arquitetura em camadas com
+interfaces nas bordas, testes unitários e decisões documentadas.
+
+### Rodando em modo de desenvolvimento
 
 Requer Node.js 22.12+ e Docker.
 
@@ -202,16 +334,20 @@ Node.js + TypeScript (strict), [Fastify](https://fastify.dev),
 flowchart LR
     TG[Telegram] <--> CH[TelegramChannel]
     CH --> AS[Assistant]
+    AS --> AF[AccountsFlow]
+    AS --> PF[PaymentFlow]
     AS --> PA[TransactionParser]
     PA --> GE[(Gemini)]
-    AS --> SV[TransactionService]
-    SV --> RE[TransactionRepository]
-    RE --> DB[(PostgreSQL)]
+    PF --> PR[payment-resolver]
+    PF --> SV[TransactionService]
+    AF --> AC[AccountService]
+    SV --> DB[(PostgreSQL)]
+    AC --> DB
 ```
 
-As três fronteiras com o mundo externo são **interfaces**: `MessageChannel` (Telegram),
-`TransactionParser` (Gemini) e `TransactionRepository` (Prisma). Trocar o Telegram pelo
-WhatsApp, o Gemini por outro modelo ou o Prisma por outro banco significa escrever uma nova
+As fronteiras com o mundo externo são **interfaces**: `MessageChannel` (Telegram),
+`TransactionParser` (Gemini) e os repositórios (Prisma). Trocar o Telegram pelo WhatsApp, o
+Gemini por outro modelo ou o Prisma por outro banco significa escrever uma nova
 implementação, sem mexer no resto. O único lugar que conhece as peças concretas é o
 [`src/main.ts`](src/main.ts).
 
@@ -225,13 +361,13 @@ src/
 ├── prompts/                # system prompt da IA
 ├── modules/
 │   ├── transactions/       # service, repository (Prisma), schemas e rótulos
-│   ├── accounts/           # cartões e contas, saldo de VR/VA
+│   ├── accounts/           # cartões e contas, saldo de VR/VA, faturas de crédito
 │   ├── payments/           # resolver: o que perguntar sobre o pagamento
 │   ├── pending/            # lançamentos esperando resposta
 │   └── conversation/       # passo atual de conversas com vários passos
 ├── http/server.ts          # Fastify: /health
 ├── lib/                    # datas, dinheiro, logger, Prisma
-└── test/                   # apoio aos testes (repositório em memória)
+└── test/                   # apoio aos testes (repositórios em memória)
 ```
 
 ### Decisões técnicas
@@ -242,48 +378,36 @@ src/
   calculada no fuso do usuário antes de ir para a IA, com um calendário dos últimos 7 dias
   no prompt, porque modelos de linguagem erram aritmética de datas.
 - **Um schema Zod, dois usos.** O mesmo schema vira o JSON Schema do _structured output_ do
-  Gemini e valida a resposta antes de salvar. Regras que o JSON Schema não expressa (como
-  "categoria de receita só em receita") ficam na validação.
-- **`batchId` por mensagem.** As transações de uma mesma mensagem formam um lote, que o botão
-  "Desfazer" apaga junto. O `callback_data` do Telegram tem limite de 64 bytes, e
-  `undo:<uuid>` ocupa 41.
-- **UUIDv7 como id.** É ordenado por tempo, o que dá um índice mais eficiente e desempata a
-  ordem de registro dentro de um lote.
+  Gemini e valida a resposta antes de salvar. O JSON Schema é montado a cada chamada, com os
+  nomes dos cartões do usuário como `enum`. Regras que ele não expressa (como "categoria de
+  receita só em receita") ficam na validação.
 - **Modelos reserva.** Na camada gratuita, um modelo específico às vezes responde 503 ou trava;
   o parser passa para o próximo da lista (`GEMINI_FALLBACK_MODELS`).
 - **Perguntar sem perder nada.** Um lançamento sem forma de pagamento vira uma _pendência_
   no banco (não em memória): sobrevive a reinícios do bot e é listado em `/pendentes`. A
   decisão do que perguntar é uma função pura (`payment-resolver.ts`), fácil de testar.
-- **Ids inteiros para cartões e pendências.** Eles vão no `callback_data` dos botões,
-  junto com a ação (ex.: `pa:12:3`), e o limite é de 64 bytes.
-- **Saldo nunca é guardado pronto.** Saldo do VA = saldo inicial + recargas − gastos,
-  calculado na hora. Assim, desfazer um lançamento corrige o saldo automaticamente.
+- **`batchId` por mensagem.** As transações de uma mesma mensagem formam um lote, que o botão
+  "Desfazer" apaga junto.
+- **`callback_data` de até 64 bytes.** Por isso cartões e pendências têm ids inteiros
+  (ex.: `pa:12:3`), e as transações usam UUIDv7 (`undo:<uuid>` ocupa 41 bytes), que também
+  é ordenado por tempo e desempata a ordem de registro dentro de um lote.
+- **Saldo e fatura nunca são guardados prontos.** Saldo do VA = saldo inicial + recargas −
+  gastos; a fatura sai das compras e das faturas pagas. Tudo calculado na hora, então
+  desfazer um lançamento corrige os valores automaticamente.
+- **Regras de fatura.** Cada compra cai na fatura que fecha no mesmo mês, se foi antes do
+  dia de fechamento, ou na do mês seguinte. A parcela k cai k meses depois, e a primeira
+  fica com o resto da divisão (100,00 em 3x = 33,34 + 33,33 + 33,33). Tudo em funções puras
+  em `credit-invoice.ts`.
+- **Limitação do disponível.** O bot não conhece compras feitas antes de o cartão ser
+  cadastrado, nem pagamentos parciais de fatura. "Ajustar disponível" guarda a diferença
+  para o total bater com o do banco.
 - **Passos de conversa expiram.** Depois de "Qual o nome do cartão?", o próximo texto é o
   nome. Se você esquecer de responder, em 15 minutos o bot volta a tratar textos como
   lançamentos.
-- **Fatura calculada, não guardada.** Cada compra cai na fatura que fecha no mesmo mês, se
-  foi antes do dia de fechamento, ou na do mês seguinte. A parcela k cai k meses depois, e a
-  primeira fica com o resto da divisão (100,00 em 3x = 33,34 + 33,33 + 33,33). Tudo isso sai
-  de funções puras em `credit-invoice.ts`, a partir das transações e das faturas pagas.
-- **Limitação do disponível.** O bot não conhece compras feitas antes de o cartão ser
-  cadastrado, nem pagamentos parciais de fatura. Para o valor bater com o do banco, use
-  `/cartoes → Gerenciar → Ajustar disponível`: o bot guarda a diferença como ajuste.
+- **Nome fixo do projeto Docker** (`name:` no `docker-compose.yml`). Sem ele, o volume do
+  banco dependeria do nome da pasta, e baixar o ZIP numa pasta nova criaria um banco vazio.
 - **Filtro de usuário e de chat privado.** Mensagens de outras pessoas são ignoradas sem
   resposta. O bot também ignora grupos, para seus gastos não aparecerem para outros.
-
-## Solução de problemas
-
-| Sintoma                                | Causa provável e solução                                        |
-| -------------------------------------- | --------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN inválido` nos logs | Token copiado errado ou revogado. Pegue outro com o @BotFather. |
-| Bot não responde a nada                | `ALLOWED_TELEGRAM_USER_ID` errado, ou o bot não está rodando.   |
-| "A chave do Gemini foi recusada"       | Confira `GEMINI_API_KEY` no `.env` e rode `up -d` de novo.      |
-| "A IA está instável"                   | Todos os modelos sobrecarregados. Tente em alguns minutos.      |
-| "Atingi o limite de uso gratuito"      | Limite de requisições por minuto. Espere um minuto.             |
-| `EADDRINUSE` ou erro 409 do Telegram   | Duas instâncias do bot rodando. Deixe só uma.                   |
-
-Depois de editar o `.env`, recrie o container para ele ler os valores novos:
-`docker compose --profile app up -d`.
 
 ## Licença
 
