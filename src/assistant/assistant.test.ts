@@ -10,12 +10,17 @@ import type { TransactionDraft } from '../modules/transactions/transaction.schem
 import { TransactionService } from '../modules/transactions/transaction.service.js';
 import {
   InMemoryAccountRepository,
+  InMemoryBudgetRepository,
   InMemoryChatStateRepository,
   InMemoryInvoicePaymentRepository,
   InMemoryPendingRepository,
+  InMemoryRecurringRepository,
 } from '../test/in-memory-repositories.js';
 import { InMemoryTransactionRepository } from '../test/in-memory-transaction-repository.js';
-import { CHAT_STATE_TTL_MS } from './accounts-flow.js';
+import { BudgetService } from '../modules/budgets/budget.service.js';
+import { RecurringService } from '../modules/recurring/recurring.service.js';
+import { ReportService } from '../modules/reports/report.service.js';
+import { CHAT_STATE_TTL_MS } from './conversation-state.js';
 import { Assistant } from './assistant.js';
 
 const RECEIVED_AT = new Date('2026-09-24T15:00:00Z');
@@ -52,12 +57,18 @@ function setup() {
     transactions,
     new InMemoryInvoicePaymentRepository(),
   );
+  const transactionService = new TransactionService(transactions);
+  const budgets = new InMemoryBudgetRepository();
+  const recurringRepository = new InMemoryRecurringRepository();
   const assistant = new Assistant({
     parser: { parse },
-    transactions: new TransactionService(transactions),
+    transactions: transactionService,
     accounts,
     pending,
     chatState,
+    recurring: new RecurringService(recurringRepository, transactionService),
+    reports: new ReportService(transactions, accounts),
+    budgets: new BudgetService(budgets),
     logger,
     now: clock,
   });
@@ -73,7 +84,19 @@ function setup() {
     now = new Date(now.getTime() + ms);
   };
 
-  return { assistant, parse, transactions, accounts, pending, logger, button, say, advanceClock };
+  return {
+    assistant,
+    parse,
+    transactions,
+    accounts,
+    pending,
+    budgets,
+    recurringRepository,
+    logger,
+    button,
+    say,
+    advanceClock,
+  };
 }
 
 /** A configuração real do usuário: Itaú (conta + crédito), Santander, VR e VA. */
@@ -119,6 +142,7 @@ describe('Assistant', () => {
         text: 'almoço ontem',
         now: RECEIVED_AT,
         accounts: [{ name: 'Santander', kind: 'CREDIT_CARD' }],
+        investmentDestinations: [],
       });
     });
 
@@ -353,7 +377,9 @@ describe('Assistant', () => {
       const askName = await assistant.handleAction(button(types, 'Conta + crédito'));
       expect(askName.text).toContain('Qual o nome?');
 
-      const askLimit = await say('Itaú');
+      const askBalance = await say('Itaú');
+      expect(askBalance.text).toContain('saldo atual da conta');
+      const askLimit = await say('2.340,50');
       expect(askLimit.text).toContain('limite');
       const askClosing = await say('3.000');
       expect(askClosing.text).toContain('fecha');
@@ -362,7 +388,12 @@ describe('Assistant', () => {
       expect(parse).not.toHaveBeenCalled();
       expect(done.text).toContain('Cadastrado: Itaú (conta) e Itaú (crédito)');
       const [conta, credito] = await accounts.listActive();
-      expect(conta).toMatchObject({ kind: 'BANK', creditLimitCents: null, closingDay: null });
+      expect(conta).toMatchObject({
+        kind: 'BANK',
+        initialBalanceCents: 234050,
+        creditLimitCents: null,
+        closingDay: null,
+      });
       expect(credito).toMatchObject({
         kind: 'CREDIT_CARD',
         creditLimitCents: 300000,
@@ -633,6 +664,218 @@ describe('Assistant', () => {
       expect(done.text).toMatch(
         /Santander \(crédito\): fatura R\$\s0,00 \(fecha 05\/10\) · disponível R\$\s2\.180,00/,
       );
+    });
+  });
+
+  describe('investimentos e saldo da conta', () => {
+    it('aporte cai na conta, mostra o total no destino e o saldo da conta', async () => {
+      const { parse, accounts, transactions, say } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 200000 });
+      parse.mockResolvedValue(
+        result({
+          transactions: [
+            draft({
+              type: 'INVESTMENT',
+              category: 'INVESTIMENTO',
+              description: 'Tesouro Selic',
+              amountCents: 50000,
+              paymentMethod: null,
+            }),
+          ],
+        }),
+      );
+
+      const reply = await say('investi 500 no tesouro');
+
+      expect(transactions.rows[0]).toMatchObject({ type: 'INVESTMENT', accountId: 1 });
+      expect(reply.text).toContain('Aporte');
+      expect(reply.text).toMatch(/Tesouro Selic: R\$\s500,00 investidos no total/);
+      expect(reply.text).toMatch(/Saldo Itaú \(conta\): R\$\s1\.500,00/);
+    });
+
+    it('salário cai na conta sem perguntar e aumenta o saldo', async () => {
+      const { parse, accounts, say } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 10000 });
+      parse.mockResolvedValue(
+        result({
+          transactions: [
+            draft({
+              type: 'INCOME',
+              category: 'SALARIO',
+              amountCents: 375000,
+              paymentMethod: null,
+            }),
+          ],
+        }),
+      );
+
+      const reply = await say('caiu o salário 3750');
+
+      expect(reply.text).toMatch(/Saldo Itaú \(conta\): R\$\s3\.850,00/);
+    });
+
+    it('fatura paga pela conta desconta do saldo dela', async () => {
+      const { assistant, accounts, transactions, button } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 100000 });
+      const [card] = await accounts.create('CREDIT_CARD', 'Santander', {
+        creditLimitCents: 300000,
+        closingDay: 5,
+      });
+      await transactions.createBatch('b', [
+        {
+          type: 'EXPENSE',
+          amountCents: 12000,
+          description: 'Livro',
+          category: 'EDUCACAO',
+          paymentMethod: 'CREDITO',
+          occurredAt: new Date('2026-08-20T00:00:00.000Z'),
+          rawInput: 'x',
+          source: 'TEXT',
+          accountId: card?.id ?? 0,
+          installments: 1,
+        },
+      ]);
+
+      const details = await assistant.handleAction(`ac:open:${card?.id}`);
+      const confirm = await assistant.handleAction(button(details, 'Paguei a fatura'));
+      const paid = await assistant.handleAction(button(confirm, 'Sim, paguei'));
+
+      expect(paid.text).toContain('saiu da conta Itaú');
+      const menu = await assistant.handleAccounts();
+      expect(menu.text).toMatch(/Itaú \(conta\): saldo R\$\s880,00/);
+    });
+  });
+
+  describe('/resumo', () => {
+    it('mostra sobra sem VR/VA, investido e livre', async () => {
+      const { assistant, parse, accounts, say } = setup();
+      await withUserAccounts(accounts);
+      parse
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({
+                type: 'INCOME',
+                category: 'SALARIO',
+                amountCents: 375000,
+                paymentMethod: null,
+              }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({ amountCents: 120000, category: 'MORADIA', paymentMethod: 'PIX' }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          result({ transactions: [draft({ amountCents: 5000, paymentMethod: 'VR' })] }),
+        )
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({
+                type: 'INVESTMENT',
+                category: 'INVESTIMENTO',
+                description: 'Caixinha',
+                amountCents: 100000,
+                paymentMethod: null,
+              }),
+            ],
+          }),
+        );
+      for (const text of ['salário', 'aluguel', 'almoço no vr', 'caixinha']) await say(text);
+
+      const summary = await assistant.handleSummary();
+
+      expect(summary.text).toContain('Setembro de 2026');
+      expect(summary.text).toMatch(/Receitas: R\$\s3\.750,00/);
+      expect(summary.text).toMatch(/Despesas: R\$\s1\.200,00/);
+      expect(summary.text).toMatch(/Sobra: R\$\s2\.550,00/);
+      expect(summary.text).toMatch(/Investido: R\$\s1\.000,00/);
+      expect(summary.text).toMatch(/Livre depois de investir: R\$\s1\.550,00/);
+      expect(summary.text).toMatch(/VR\/VA \(fora da sobra\): entrou R\$\s0,00, saiu R\$\s50,00/);
+      expect(summary.actions?.flat().map((a) => a.id)).toEqual(['rs:2026-08']);
+    });
+  });
+
+  describe('/orcamento', () => {
+    it('define um limite e avisa ao passar de 80% e de 100%', async () => {
+      const { assistant, parse, button, say } = setup();
+
+      const menu = await assistant.handleBudgets();
+      const categories = await assistant.handleAction(button(menu, 'Definir limite'));
+      await assistant.handleAction(button(categories, 'Alimentação'));
+      const saved = await say('100');
+      expect(saved.text).toContain('Limite de Alimentação definido');
+
+      parse.mockResolvedValueOnce(result({ transactions: [draft({ amountCents: 7000 })] }));
+      expect((await say('almoço 70')).text).not.toContain('orçamento');
+
+      parse.mockResolvedValueOnce(result({ transactions: [draft({ amountCents: 1500 })] }));
+      expect((await say('lanche 15')).text).toMatch(/Alimentação: 85% do orçamento do mês/);
+
+      parse.mockResolvedValueOnce(result({ transactions: [draft({ amountCents: 2000 })] }));
+      expect((await say('jantar 20')).text).toContain('passou do orçamento do mês');
+    });
+  });
+
+  describe('/fixos', () => {
+    it('cadastra pelo texto + dia e lança sozinho no dia, uma vez por mês', async () => {
+      const { assistant, parse, accounts, transactions, recurringRepository, button, say } =
+        setup();
+      await accounts.create('BANK', 'Itaú');
+      parse.mockResolvedValue(
+        result({
+          transactions: [
+            draft({
+              description: 'Aluguel',
+              category: 'MORADIA',
+              amountCents: 120000,
+              paymentMethod: 'PIX',
+            }),
+          ],
+        }),
+      );
+
+      const menu = await assistant.handleRecurring();
+      await assistant.handleAction(button(menu, 'Adicionar'));
+      const askDay = await say('aluguel 1200 no pix');
+      expect(askDay.text).toContain('Em que dia do mês');
+      const created = await say('28');
+
+      expect(created.text).toContain('Gasto fixo cadastrado');
+      expect(created.text).toContain('28/09/2026');
+      expect(transactions.rows).toHaveLength(0);
+
+      // Chegou o dia: a tarefa automática lança e avisa com Desfazer.
+      const recurring = new RecurringService(
+        recurringRepository,
+        new TransactionService(transactions),
+      );
+      const runs = await recurring.runDue('2026-09-28');
+      const [notice] = await assistant.announceRecurring(runs);
+      expect(notice?.text).toContain('Lancei um gasto fixo');
+      expect(notice?.actions?.flat()[0]?.id).toMatch(/^undo:/);
+      expect(transactions.rows[0]).toMatchObject({ source: 'RECURRING', accountId: 1 });
+
+      // Nunca duas vezes no mesmo mês.
+      expect(await recurring.runDue('2026-09-30')).toHaveLength(0);
+    });
+
+    it('se o dia deste mês já passou, começa no mês que vem', async () => {
+      const { assistant, parse, button, say } = setup();
+      parse.mockResolvedValue(
+        result({ transactions: [draft({ description: 'Netflix', amountCents: 5500 })] }),
+      );
+
+      await assistant.handleAction(button(await assistant.handleRecurring(), 'Adicionar'));
+      await say('netflix 55 em dinheiro');
+      const created = await say('5');
+
+      expect(created.text).toContain('05/10/2026');
     });
   });
 });

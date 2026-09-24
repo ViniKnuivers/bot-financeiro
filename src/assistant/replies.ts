@@ -9,11 +9,21 @@ import {
 } from '../modules/accounts/account-kinds.js';
 import type { Account } from '../modules/accounts/account.repository.js';
 import type { CreditSummary } from '../modules/accounts/credit-invoice.js';
+import type { BudgetLimit } from '../modules/budgets/budget.repository.js';
+import {
+  percentOf,
+  type BudgetStatus,
+  type BudgetThreshold,
+} from '../modules/budgets/budget.service.js';
+import type { RecurringEntry } from '../modules/recurring/recurring.repository.js';
+import type { InvestmentPosition, MonthSummary } from '../modules/reports/monthly-report.js';
+import type { AccountBalance } from '../modules/reports/report.service.js';
 import type { PendingDraft } from '../modules/pending/pending.repository.js';
 import type { Question } from '../modules/payments/payment-resolver.js';
 import {
   CATEGORY_LABELS,
   PAYMENT_METHOD_LABELS,
+  TYPE_ICONS,
   TYPE_LABELS,
 } from '../modules/transactions/transaction.labels.js';
 import type { Transaction } from '../modules/transactions/transaction.repository.js';
@@ -34,8 +44,13 @@ export const WELCOME = [
   'Se faltar a forma de pagamento, eu pergunto. Depois de cada registro, você pode tocar',
   'em "Desfazer" se algo sair errado.',
   '',
+  'Investimentos também: "investi 500 no tesouro", "resgatei 200 da caixinha".',
+  '',
   'Comandos:',
-  '/cartoes: seus cartões, contas e saldos de VR/VA',
+  '/resumo: quanto entrou, saiu, sobrou e foi investido no mês',
+  '/orcamento: limites por categoria, com aviso ao passar de 80%',
+  '/fixos: gastos fixos que eu lanço sozinho todo mês',
+  '/cartoes: seus cartões, contas e saldos',
   '/pendentes: lançamentos esperando sua resposta',
   '/ultimos: seus 10 últimos lançamentos',
   '/desfazer: apaga o último lançamento',
@@ -83,7 +98,7 @@ export function formatRegistered(transactions: Transaction[], accounts: Accounts
       : `✅ Registrei ${transactions.length} lançamentos:`;
 
   const items = transactions.map((t) => {
-    const icon = t.type === 'INCOME' ? '💰' : '💸';
+    const icon = TYPE_ICONS[t.type];
     const when = [formatDateOnly(t.occurredAt)];
     const payment = paymentLabel(t.paymentMethod, t.accountId, accounts);
     if (payment) when.push(payment);
@@ -117,7 +132,7 @@ export function formatLatest(transactions: Transaction[], accounts: AccountsById
   }
 
   const lines = transactions.map((t) => {
-    const icon = t.type === 'INCOME' ? '💰' : '💸';
+    const icon = TYPE_ICONS[t.type];
     const payment = paymentLabel(t.paymentMethod, t.accountId, accounts);
     return `${formatDayMonth(t.occurredAt)} ${icon} ${formatAmount(t)} · ${t.description} (${CATEGORY_LABELS[t.category]}${payment ? `, ${payment}` : ''})`;
   });
@@ -156,6 +171,10 @@ export function formatPaymentQuestion(drafts: PendingDraft[], question: Question
   let title: string;
   if (question.status === 'needs_method') {
     title = plural ? `🤔 Como você pagou estes ${drafts.length}?` : '🤔 Como você pagou?';
+  } else if (question.paymentMethod === null) {
+    title = drafts.every((d) => d.type === 'INVESTMENT')
+      ? '🏦 De qual conta saiu?'
+      : '🏦 Em qual conta caiu?';
   } else if (question.paymentMethod === 'CREDITO') {
     title = '💳 Em qual cartão de crédito?';
   } else if (question.paymentMethod === 'PIX' || question.paymentMethod === 'DEBITO') {
@@ -213,7 +232,9 @@ export function formatAccountLine(account: Account, details: AccountDetails = {}
     case 'FOOD_VOUCHER':
       return `${icon} ${label}: saldo ${formatCents(details.balanceCents ?? 0)}`;
     case 'BANK':
-      return `${icon} ${label}: débito e pix`;
+      return details.balanceCents === undefined
+        ? `${icon} ${label}: débito e pix`
+        : `${icon} ${label}: saldo ${formatCents(details.balanceCents)}`;
     case 'CREDIT_CARD':
       return details.credit
         ? `${icon} ${label}: ${creditDetails(details.credit)}`
@@ -227,6 +248,116 @@ export function formatCreditAfterPurchase(account: Account, summary: CreditSumma
     return `💳 Configure o fechamento do ${account.name} em /cartoes para eu mostrar a fatura.`;
   }
   return `💳 ${account.name}: ${creditDetails(summary)}`;
+}
+
+/** "📈 Tesouro Selic: R$ 700,00 investidos no total" */
+export function formatInvestmentPosition(position: InvestmentPosition): string {
+  return `📈 ${position.destination}: ${formatCents(position.balanceCents)} investidos no total`;
+}
+
+export function formatBudgetAlert(
+  budget: BudgetLimit,
+  spentCents: number,
+  threshold: BudgetThreshold,
+): string {
+  const label = CATEGORY_LABELS[budget.category];
+  const amounts = `${formatCents(spentCents)} de ${formatCents(budget.limitCents)}`;
+  return threshold === 100
+    ? `🚨 ${label}: passou do orçamento do mês (${amounts})`
+    : `⚠️ ${label}: ${percentOf(spentCents, budget.limitCents)}% do orçamento do mês (${amounts})`;
+}
+
+/** "Aluguel · R$ 1.200,00 · todo dia 5 · Pix Itaú" */
+export function formatRecurringLine(entry: RecurringEntry, accounts: AccountsById): string {
+  const parts = [
+    `${TYPE_ICONS[entry.type]} ${entry.description}`,
+    formatCents(entry.amountCents),
+    `todo dia ${entry.dayOfMonth}`,
+  ];
+  const payment = paymentLabel(entry.paymentMethod, entry.accountId, accounts);
+  if (payment) parts.push(payment);
+  return parts.join(' · ') + (entry.active ? '' : ' (pausado)');
+}
+
+export function formatRecurringCreated(
+  entry: RecurringEntry,
+  nextRun: string,
+  accounts: AccountsById,
+): string {
+  return [
+    '✅ Gasto fixo cadastrado:',
+    formatRecurringLine(entry, accounts),
+    '',
+    `Primeiro lançamento: ${formatDateOnly(new Date(`${nextRun}T00:00:00.000Z`))}. Eu aviso quando lançar. Para pausar ou remover: /fixos`,
+  ].join('\n');
+}
+
+function progressBar(percent: number): string {
+  const filled = Math.min(10, Math.round(percent / 10));
+  return '▓'.repeat(filled) + '░'.repeat(10 - filled);
+}
+
+export function formatBudgetStatus(status: BudgetStatus): string {
+  const warning = status.percent >= 100 ? ' 🚨' : status.percent >= 80 ? ' ⚠️' : '';
+  return `${CATEGORY_LABELS[status.category]}: ${formatCents(status.spentCents)} de ${formatCents(status.limitCents)} (${status.percent}%)${warning}\n${progressBar(status.percent)}`;
+}
+
+/** Texto do /resumo e do aviso do dia 1. */
+export function formatMonthSummary(
+  summary: MonthSummary,
+  balances: AccountBalance[],
+  budgets: BudgetStatus[],
+): string {
+  const lines = [
+    `📊 ${capitalize(formatMonthLong(summary.month))}`,
+    '',
+    `💰 Receitas: ${formatCents(summary.incomeCents)}`,
+    `💸 Despesas: ${formatCents(summary.expenseCents)}`,
+    `✅ Sobra: ${formatCents(summary.surplusCents)}`,
+    `📈 Investido: ${formatCents(summary.netInvestedCents)}` +
+      (summary.redeemedCents > 0
+        ? ` (aportes ${formatCents(summary.investedCents)} − resgates ${formatCents(summary.redeemedCents)})`
+        : ''),
+    `🟢 Livre depois de investir: ${formatCents(summary.freeCents)}`,
+  ];
+  if (summary.voucherIncomeCents > 0 || summary.voucherExpenseCents > 0) {
+    lines.push(
+      `🍽️ VR/VA (fora da sobra): entrou ${formatCents(summary.voucherIncomeCents)}, saiu ${formatCents(summary.voucherExpenseCents)}`,
+    );
+  }
+  if (balances.length > 0) {
+    lines.push('', 'Saldos agora:');
+    for (const { account, cents } of balances) {
+      lines.push(
+        `${ACCOUNT_KIND_ICONS[account.kind]} ${accountLabel(account)}: ${formatCents(cents)}`,
+      );
+    }
+  }
+  const top = summary.byCategory.slice(0, 5);
+  if (top.length > 0) {
+    const budgetByCategory = new Map(budgets.map((b) => [b.category, b]));
+    lines.push('', 'Maiores gastos:');
+    for (const { category, cents } of top) {
+      const budget = budgetByCategory.get(category);
+      lines.push(
+        `• ${CATEGORY_LABELS[category]}: ${formatCents(cents)}${budget ? ` (${budget.percent}% do orçamento)` : ''}`,
+      );
+    }
+  }
+  return lines.join('\n');
+}
+
+/** "2026-09" → "setembro de 2026". */
+export function formatMonthLong(month: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${month}-01T00:00:00.000Z`));
+}
+
+function capitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 const PARSER_ERROR_MESSAGES: Record<TransactionParserErrorReason, string> = {

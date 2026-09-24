@@ -26,6 +26,15 @@ export const INCOME_CATEGORIES = [
   'VALE_ALIMENTACAO',
 ] as const satisfies readonly Category[];
 
+export const INVESTMENT_CATEGORIES = ['INVESTIMENTO'] as const satisfies readonly Category[];
+
+const CATEGORIES_BY_TYPE: Record<TransactionType, readonly Category[]> = {
+  EXPENSE: EXPENSE_CATEGORIES,
+  INCOME: INCOME_CATEGORIES,
+  INVESTMENT: INVESTMENT_CATEGORIES,
+  REDEMPTION: INVESTMENT_CATEGORIES,
+};
+
 /** Limite da coluna INTEGER do Postgres. */
 const MAX_AMOUNT_CENTS = 2_147_483_647;
 
@@ -64,6 +73,5 @@ export type TransactionDraft = z.infer<typeof transactionDraftSchema>;
 
 /** Regra de negócio que o JSON Schema não expressa: categoria compatível com o tipo. */
 export function isCategoryAllowedForType(category: Category, type: TransactionType): boolean {
-  const allowed: readonly Category[] = type === 'INCOME' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-  return allowed.includes(category);
+  return CATEGORIES_BY_TYPE[type].includes(category);
 }

@@ -11,6 +11,8 @@ export interface ParseInput {
   now: Date;
   /** Cartões e contas do usuário, para a IA reconhecer "no itaú", "no VA". */
   accounts?: readonly AccountHint[];
+  /** Destinos de investimento já usados, para a IA repetir o mesmo nome. */
+  investmentDestinations?: readonly string[];
 }
 
 export interface AccountHint {

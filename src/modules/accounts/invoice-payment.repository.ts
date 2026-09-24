@@ -5,7 +5,17 @@ export interface InvoicePaymentRepository {
   /** Meses ("YYYY-MM") das faturas pagas deste cartão. */
   listPaidMonths(accountId: number): Promise<string[]>;
   /** Idempotente: marcar duas vezes a mesma fatura não duplica. */
-  markPaid(accountId: number, invoiceMonth: string): Promise<void>;
+  markPaid(payment: NewInvoicePayment): Promise<void>;
+  /** Total de faturas pagas com dinheiro desta conta bancária (entra no saldo dela). */
+  sumPaidFrom(bankAccountId: number): Promise<number>;
+}
+
+export interface NewInvoicePayment {
+  /** O cartão de crédito. */
+  accountId: number;
+  invoiceMonth: string;
+  amountCents: number;
+  paidFromAccountId: number | null;
 }
 
 export class PrismaInvoicePaymentRepository implements InvoicePaymentRepository {
@@ -19,11 +29,20 @@ export class PrismaInvoicePaymentRepository implements InvoicePaymentRepository 
     return rows.map((row) => row.invoiceMonth);
   }
 
-  async markPaid(accountId: number, invoiceMonth: string): Promise<void> {
+  async markPaid(payment: NewInvoicePayment): Promise<void> {
+    const { accountId, invoiceMonth } = payment;
     await this.prisma.invoicePayment.upsert({
       where: { accountId_invoiceMonth: { accountId, invoiceMonth } },
-      create: { accountId, invoiceMonth },
+      create: payment,
       update: {},
     });
+  }
+
+  async sumPaidFrom(bankAccountId: number): Promise<number> {
+    const { _sum } = await this.prisma.invoicePayment.aggregate({
+      where: { paidFromAccountId: bankAccountId },
+      _sum: { amountCents: true },
+    });
+    return _sum.amountCents ?? 0;
   }
 }

@@ -4,7 +4,18 @@ import type {
   AccountRepository,
   NewAccount,
 } from '../modules/accounts/account.repository.js';
-import type { InvoicePaymentRepository } from '../modules/accounts/invoice-payment.repository.js';
+import type {
+  InvoicePaymentRepository,
+  NewInvoicePayment,
+} from '../modules/accounts/invoice-payment.repository.js';
+import type { Category } from '../generated/prisma/enums.js';
+import type { BudgetLimit, BudgetRepository } from '../modules/budgets/budget.repository.js';
+import type {
+  NewRecurringEntry,
+  RecurringEntry,
+  RecurringPatch,
+  RecurringRepository,
+} from '../modules/recurring/recurring.repository.js';
 import type {
   ChatStateRepository,
   ChatStateValue,
@@ -58,7 +69,7 @@ export class InMemoryAccountRepository implements AccountRepository {
 }
 
 export class InMemoryInvoicePaymentRepository implements InvoicePaymentRepository {
-  readonly paid: { accountId: number; invoiceMonth: string }[] = [];
+  readonly paid: NewInvoicePayment[] = [];
 
   listPaidMonths(accountId: number): Promise<string[]> {
     return Promise.resolve(
@@ -66,11 +77,20 @@ export class InMemoryInvoicePaymentRepository implements InvoicePaymentRepositor
     );
   }
 
-  markPaid(accountId: number, invoiceMonth: string): Promise<void> {
-    if (!this.paid.some((p) => p.accountId === accountId && p.invoiceMonth === invoiceMonth)) {
-      this.paid.push({ accountId, invoiceMonth });
-    }
+  markPaid(payment: NewInvoicePayment): Promise<void> {
+    const exists = this.paid.some(
+      (p) => p.accountId === payment.accountId && p.invoiceMonth === payment.invoiceMonth,
+    );
+    if (!exists) this.paid.push(payment);
     return Promise.resolve();
+  }
+
+  sumPaidFrom(bankAccountId: number): Promise<number> {
+    return Promise.resolve(
+      this.paid
+        .filter((p) => p.paidFromAccountId === bankAccountId)
+        .reduce((total, p) => total + p.amountCents, 0),
+    );
   }
 }
 
@@ -127,6 +147,54 @@ export class InMemoryChatStateRepository implements ChatStateRepository {
 
   clear(): Promise<void> {
     this.stored = null;
+    return Promise.resolve();
+  }
+}
+
+export class InMemoryBudgetRepository implements BudgetRepository {
+  readonly rows: BudgetLimit[] = [];
+
+  list(): Promise<BudgetLimit[]> {
+    return Promise.resolve([...this.rows]);
+  }
+
+  upsert(category: Category, limitCents: number): Promise<void> {
+    const row = this.rows.find((r) => r.category === category);
+    if (row) row.limitCents = limitCents;
+    else this.rows.push({ category, limitCents });
+    return Promise.resolve();
+  }
+
+  remove(category: Category): Promise<void> {
+    const index = this.rows.findIndex((r) => r.category === category);
+    if (index >= 0) this.rows.splice(index, 1);
+    return Promise.resolve();
+  }
+}
+
+export class InMemoryRecurringRepository implements RecurringRepository {
+  readonly rows: RecurringEntry[] = [];
+  private sequence = 0;
+
+  list(): Promise<RecurringEntry[]> {
+    return Promise.resolve(this.rows.map((row) => ({ ...row })));
+  }
+
+  create(entry: NewRecurringEntry): Promise<RecurringEntry> {
+    const created = { ...entry, id: ++this.sequence, active: true, createdAt: new Date() };
+    this.rows.push(created);
+    return Promise.resolve({ ...created });
+  }
+
+  update(id: number, patch: RecurringPatch): Promise<void> {
+    const row = this.rows.find((r) => r.id === id);
+    if (row) Object.assign(row, patch);
+    return Promise.resolve();
+  }
+
+  remove(id: number): Promise<void> {
+    const index = this.rows.findIndex((r) => r.id === id);
+    if (index >= 0) this.rows.splice(index, 1);
     return Promise.resolve();
   }
 }

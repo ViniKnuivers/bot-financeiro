@@ -52,6 +52,15 @@ Bot:   ✅ Registrado:
   como o banco faz.
 - **Acompanha o VR e o VA:** "recebi 600 de VA" e, a cada compra no VA, ele mostra quanto
   sobrou. O saldo acumula de um mês para o outro.
+- **Mostra quanto sobra para investir:** `/resumo` traz o mês com receitas, despesas,
+  sobra (sem contar VR/VA, que não dá para investir), quanto você investiu e o saldo da
+  conta. Dá para navegar pelos meses anteriores.
+- **Registra investimentos:** "investi 500 no tesouro", "resgatei 200 da caixinha". Aporte
+  e resgate não contam como gasto nem receita, e o bot soma o total em cada destino.
+- **Orçamento por categoria:** defina um limite mensal (ex.: Alimentação R$ 800) e o bot
+  avisa quando passar de 80% e de 100%.
+- **Gastos fixos automáticos:** cadastre aluguel, assinaturas, academia… uma vez, e o bot
+  lança sozinho todo mês no dia certo, avisando com um botão Desfazer.
 - **Desfaz fácil:** cada registro tem um botão "Desfazer", e o comando `/desfazer` apaga o
   último lançamento.
 
@@ -173,7 +182,9 @@ Mande `/cartoes` e toque em **➕ Adicionar**. Os tipos são:
 - **No crédito**, o bot pede o **limite** e o **dia de fechamento da fatura** (os dois estão
   no app do banco). Com eles, ele mostra a fatura e o disponível a cada compra. Dá para pular
   e configurar depois.
-- **No VR e no VA**, ele pede o saldo atual.
+- **Na conta bancária, no VR e no VA**, ele pede o saldo atual (o da conta você pode pular).
+  Com ele, o bot acompanha quanto tem na conta: receitas e resgates somam; pix, débito,
+  aportes e faturas pagas descontam.
 - **Depois de cadastrar um cartão de crédito**, vá em **⚙️ Gerenciar → o cartão → Ajustar
   disponível** e digite o valor que o app do banco mostra. O bot não conhece as compras que
   você fez antes de começar a usá-lo, e esse ajuste corrige a diferença.
@@ -194,7 +205,9 @@ fatura como paga (o que libera o limite dela).
 | `tênis 300 em 3x no santander` | Registra no crédito do Santander, em 3 parcelas                        |
 | `mercado 80 no VA`             | Registra e mostra quanto sobrou no VA                                  |
 | `recebi 600 de VA`             | Soma no saldo do VA                                                    |
-| `recebi 1500 do estágio`       | Registra uma receita                                                   |
+| `recebi 1500 do estágio`       | Registra uma receita (cai na sua conta)                                |
+| `investi 500 no tesouro`       | Registra um aporte e mostra o total investido no Tesouro               |
+| `resgatei 200 da caixinha`     | Registra um resgate (o dinheiro volta para a conta)                    |
 | `ontem gastei 45 no ifood`     | Usa a data de ontem                                                    |
 | `uber 18 e café 7`             | Registra dois lançamentos (e pergunta a forma de pagamento uma vez só) |
 | 🎙️ Mensagem de voz             | Mesmo resultado, mostrando o que ele entendeu do áudio                 |
@@ -204,10 +217,17 @@ fatura como paga (o que libera o limite dela).
 | Comando      | O que faz                                                            |
 | ------------ | -------------------------------------------------------------------- |
 | `/cartoes`   | Seus cartões e contas: cadastrar, gerenciar, saldos, fatura e limite |
+| `/resumo`    | O mês: receitas, despesas, sobra, investido e saldos                 |
+| `/orcamento` | Limites mensais por categoria, com aviso aos 80% e 100%              |
+| `/fixos`     | Gastos fixos que o bot lança sozinho todo mês                        |
 | `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
 | `/ultimos`   | Seus 10 últimos lançamentos                                          |
 | `/desfazer`  | Apaga o último lançamento                                            |
 | `/start`     | Boas-vindas e exemplos                                               |
+
+**Gastos fixos:** em `/fixos → Adicionar`, mande o gasto como sempre ("aluguel 1200 no pix")
+e diga o dia do mês. Se o computador estiver desligado no dia, o bot lança quando ligar
+(dentro do mesmo mês). Meses inteiros com o bot desligado não são lançados depois.
 
 **Pagar a fatura não é um gasto novo** (os gastos já foram registrados nas compras). Quando
 pagar, use `/cartoes → Gerenciar → o cartão → Paguei a fatura`.

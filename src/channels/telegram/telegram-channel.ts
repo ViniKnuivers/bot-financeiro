@@ -29,9 +29,11 @@ export class TelegramChannel implements MessageChannel {
   private readonly bot: Bot;
   private readonly logger: Logger;
   private readonly onFatalError: (error: unknown) => void;
+  private readonly allowedUserId: number;
 
   constructor({ token, allowedUserId, handler, logger, onFatalError }: TelegramChannelOptions) {
     this.bot = new Bot(token);
+    this.allowedUserId = allowedUserId;
     this.logger = logger;
     this.onFatalError = onFatalError;
 
@@ -50,6 +52,15 @@ export class TelegramChannel implements MessageChannel {
     });
     this.bot.command('cartoes', async (ctx) => {
       await sendReply(ctx, await handler.handleAccounts());
+    });
+    this.bot.command('resumo', async (ctx) => {
+      await sendReply(ctx, await handler.handleSummary());
+    });
+    this.bot.command('orcamento', async (ctx) => {
+      await sendReply(ctx, await handler.handleBudgets());
+    });
+    this.bot.command('fixos', async (ctx) => {
+      await sendReply(ctx, await handler.handleRecurring());
     });
     this.bot.command('pendentes', async (ctx) => {
       for (const message of await handler.handlePending()) {
@@ -134,7 +145,10 @@ export class TelegramChannel implements MessageChannel {
 
     // Lista que aparece no menu "/" do Telegram.
     await this.bot.api.setMyCommands([
+      { command: 'resumo', description: 'Resumo do mês: sobra, investido, saldos' },
       { command: 'ultimos', description: 'Seus 10 últimos lançamentos' },
+      { command: 'orcamento', description: 'Limites por categoria' },
+      { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
       { command: 'cartoes', description: 'Seus cartões, contas e saldos' },
       { command: 'pendentes', description: 'Lançamentos esperando resposta' },
@@ -153,6 +167,16 @@ export class TelegramChannel implements MessageChannel {
       .catch((error: unknown) => {
         this.onFatalError(error);
       });
+  }
+
+  /** Mensagem por iniciativa do bot. Em chat privado, o id do chat é o id do usuário. */
+  async notify(message: OutgoingMessage): Promise<void> {
+    const keyboard = keyboardFor(message);
+    await this.bot.api.sendMessage(
+      this.allowedUserId,
+      message.text,
+      keyboard ? { reply_markup: keyboard } : undefined,
+    );
   }
 
   async stop(): Promise<void> {

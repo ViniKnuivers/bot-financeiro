@@ -21,6 +21,7 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   OUTROS_RECEITA: 'Outras receitas',
   VALE_REFEICAO: 'Vale-refeição',
   VALE_ALIMENTACAO: 'Vale-alimentação',
+  INVESTIMENTO: 'Investimento',
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -36,4 +37,13 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 export const TYPE_LABELS: Record<TransactionType, string> = {
   EXPENSE: 'Despesa',
   INCOME: 'Receita',
+  INVESTMENT: 'Aporte',
+  REDEMPTION: 'Resgate',
+};
+
+export const TYPE_ICONS: Record<TransactionType, string> = {
+  EXPENSE: '💸',
+  INCOME: '💰',
+  INVESTMENT: '📈',
+  REDEMPTION: '📤',
 };

@@ -2,8 +2,13 @@ import type { AccountKind } from '../../generated/prisma/enums.js';
 import type { TransactionRepository } from '../transactions/transaction.repository.js';
 import { accountLabel, isVoucher, normalizeName } from './account-kinds.js';
 import type { Account, AccountRepository } from './account.repository.js';
-import { summarizeCredit, type CreditSummary } from './credit-invoice.js';
+import { invoiceTotalsByMonth, summarizeCredit, type CreditSummary } from './credit-invoice.js';
 import type { InvoicePaymentRepository } from './invoice-payment.repository.js';
+
+/** Contas com saldo acompanhado: conta bancária e vales. */
+export function hasBalance(kind: AccountKind): boolean {
+  return kind === 'BANK' || isVoucher(kind);
+}
 
 /** Opções do cadastro. "Conta + crédito" cria duas contas com o mesmo nome. */
 export type NewAccountChoice = AccountKind | 'BANK_AND_CREDIT';
@@ -16,7 +21,7 @@ export class AccountError extends Error {
 }
 
 export interface NewAccountOptions {
-  /** VR/VA: saldo atual no momento do cadastro. */
+  /** Conta bancária e VR/VA: saldo atual no momento do cadastro. */
   initialBalanceCents?: number;
   /** Crédito: limite e dia de fechamento (opcionais). */
   creditLimitCents?: number | null;
@@ -63,7 +68,7 @@ export class AccountService {
       kinds.map((kind) => ({
         name,
         kind,
-        initialBalanceCents: isVoucher(kind) ? (options.initialBalanceCents ?? 0) : 0,
+        initialBalanceCents: hasBalance(kind) ? (options.initialBalanceCents ?? 0) : 0,
         creditLimitCents: kind === 'CREDIT_CARD' ? (options.creditLimitCents ?? null) : null,
         closingDay: kind === 'CREDIT_CARD' ? (options.closingDay ?? null) : null,
       })),
@@ -81,20 +86,31 @@ export class AccountService {
   }
 
   /**
-   * Saldo de um vale (VR/VA): inicial + tudo que entrou - tudo que saiu.
+   * Saldo de uma conta bancária ou de um vale: inicial + movimentações.
    * Calculado na hora, então desfazer um lançamento já corrige o saldo.
    */
   async balance(account: Account): Promise<number> {
-    const { incomeCents, expenseCents } = await this.transactions.sumByAccount(account.id);
-    return account.initialBalanceCents + incomeCents - expenseCents;
+    return account.initialBalanceCents + (await this.movements(account));
   }
 
-  /** Faz o saldo calculado bater com o valor real (ex.: o que o app do VA mostra). */
+  /** Faz o saldo calculado bater com o valor real (ex.: o que o app do banco mostra). */
   async adjustBalance(account: Account, targetCents: number): Promise<void> {
-    const { incomeCents, expenseCents } = await this.transactions.sumByAccount(account.id);
     await this.accounts.update(account.id, {
-      initialBalanceCents: targetCents - (incomeCents - expenseCents),
+      initialBalanceCents: targetCents - (await this.movements(account)),
     });
+  }
+
+  /**
+   * Quanto entrou menos quanto saiu desde o cadastro.
+   * Conta: + receitas + resgates − despesas (débito/pix) − aportes − faturas pagas por ela.
+   * Vale: + recargas − gastos.
+   */
+  private async movements(account: Account): Promise<number> {
+    const totals = await this.transactions.sumByAccount(account.id);
+    const base = totals.INCOME - totals.EXPENSE;
+    if (account.kind !== 'BANK') return base;
+    const invoicesPaid = await this.invoices.sumPaidFrom(account.id);
+    return base + totals.REDEMPTION - totals.INVESTMENT - invoicesPaid;
   }
 
   async configureCredit(account: Account, settings: CreditSettings): Promise<void> {
@@ -132,8 +148,26 @@ export class AccountService {
     });
   }
 
-  markInvoicePaid(account: Account, invoiceMonth: string): Promise<void> {
-    return this.invoices.markPaid(account.id, invoiceMonth);
+  /**
+   * Marca a fatura como paga (libera o limite) e guarda o valor e a conta de onde saiu o
+   * dinheiro, que passa a descontar do saldo dela.
+   */
+  async markInvoicePaid(
+    card: Account,
+    invoiceMonth: string,
+    paidFromAccountId: number | null,
+  ): Promise<void> {
+    const purchases = await this.transactions.listPurchasesByAccount(card.id);
+    const totals =
+      card.closingDay === null
+        ? new Map<string, number>()
+        : invoiceTotalsByMonth(purchases, card.closingDay);
+    await this.invoices.markPaid({
+      accountId: card.id,
+      invoiceMonth,
+      amountCents: totals.get(invoiceMonth) ?? 0,
+      paidFromAccountId,
+    });
   }
 
   /** Nome aparado, com tamanho válido e sem repetir outro ativo do mesmo tipo. */

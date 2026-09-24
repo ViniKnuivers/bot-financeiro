@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { PrismaClient } from '../../generated/prisma/client.js';
-import type { InputSource } from '../../generated/prisma/enums.js';
+import type { InputSource, PendingPurpose } from '../../generated/prisma/enums.js';
 import { transactionDraftSchema } from '../transactions/transaction.schemas.js';
 
 /** Rascunho da IA + a conta escolhida nos botões (null enquanto não decidida). */
@@ -17,6 +17,9 @@ export interface PendingEntry {
   rawInput: string;
   source: InputSource;
   receivedAt: Date;
+  /** TRANSACTION: vira lançamento. RECURRING: vira gasto fixo, no dia `recurringDay`. */
+  purpose: PendingPurpose;
+  recurringDay: number | null;
   createdAt: Date;
 }
 

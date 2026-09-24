@@ -15,6 +15,8 @@ export interface PromptContext {
   today: string;
   timeZone: string;
   accounts: readonly AccountHint[];
+  /** Destinos de investimento já usados ("Tesouro Selic", "Caixinha Nubank"). */
+  investmentDestinations?: readonly string[];
 }
 
 const ACCOUNT_KIND_DESCRIPTIONS: Record<AccountKind, string> = {
@@ -52,7 +54,19 @@ function recentCalendar(today: string): string {
   return lines.join('\n');
 }
 
-export function buildTransactionParserPrompt({ today, timeZone, accounts }: PromptContext): string {
+function destinationList(destinations: readonly string[]): string {
+  if (destinations.length === 0) return 'Ainda não há destinos cadastrados.';
+  return `Destinos já usados (reuse o MESMO nome quando for o mesmo investimento): ${destinations
+    .map((d) => `"${d}"`)
+    .join(', ')}.`;
+}
+
+export function buildTransactionParserPrompt({
+  today,
+  timeZone,
+  accounts,
+  investmentDestinations = [],
+}: PromptContext): string {
   return `
 Você é o assistente financeiro pessoal de um estudante brasileiro. Seu trabalho é ler
 mensagens curtas (texto ou áudio, em português informal) e extrair gastos e receitas.
@@ -81,9 +95,14 @@ ${recentCalendar(today)}
 é UMA: itens da mesma compra não se separam.
 
 # type
+- "INVESTMENT" (aporte): dinheiro guardado ou investido. "investi 500 no tesouro",
+  "coloquei 300 na caixinha", "apliquei no CDB", "comprei ações", "guardei 200".
+- "REDEMPTION" (resgate): dinheiro que volta de um investimento. "resgatei 200 da
+  caixinha", "tirei 500 do CDB", "vendi as ações".
 - "INCOME" quando houver sinal claro de entrada de dinheiro: recebi, ganhei, caiu, entrou,
   salário, pagamento do estágio, freela, me pagaram, reembolso, pix recebido.
 - Caso contrário, "EXPENSE" (é o caso mais comum).
+Aporte e resgate NÃO são despesa nem receita: use os tipos acima.
 
 # amountCents (inteiro, em centavos, sempre positivo)
 - "32" → 3200; "18,50" ou "18.50" → 1850; "R$ 7" → 700
@@ -118,7 +137,15 @@ Receitas (type INCOME):
 - VALE_REFEICAO: recarga do VR ("recebi 600 de VR", "caiu o vale-refeição")
 - VALE_ALIMENTACAO: recarga do VA ("recebi o VA", "caiu o vale-alimentação", "vale mercado")
 - OUTROS_RECEITA: reembolso, presente em dinheiro, venda de algo, rendimento, outros
+Investimentos (type INVESTMENT ou REDEMPTION):
+- INVESTIMENTO: a única categoria válida para aportes e resgates.
 Uma categoria de receita NUNCA pode ser usada com EXPENSE, e vice-versa.
+
+# Investimentos: description = o DESTINO
+Em aportes e resgates, "description" é o destino, curto e com inicial maiúscula:
+"Tesouro Selic", "Caixinha Nubank", "CDB Inter", "Ações", "Poupança".
+${destinationList(investmentDestinations)}
+paymentMethod: null (o app sabe de qual conta sai ou para qual volta).
 
 # paymentMethod
 PIX, CREDITO ("no crédito", "cartão de crédito", "parcelado"), DEBITO ("no débito"),

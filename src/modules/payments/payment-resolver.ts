@@ -18,7 +18,8 @@ export interface AccountRef {
 export type DraftResolution =
   | { status: 'resolved'; paymentMethod: PaymentMethod | null; accountId: number | null }
   | { status: 'needs_method'; methods: PaymentMethod[] }
-  | { status: 'needs_account'; paymentMethod: PaymentMethod; accounts: AccountRef[] };
+  /** `paymentMethod` null: pergunta só a conta (receita, aporte ou resgate). */
+  | { status: 'needs_account'; paymentMethod: PaymentMethod | null; accounts: AccountRef[] };
 
 export type Question = Exclude<DraftResolution, { status: 'resolved' }>;
 
@@ -32,20 +33,7 @@ export function resolveDraft(draft: PendingDraft, accounts: AccountRef[]): Draft
     ? accounts.filter((a) => normalizeName(a.name) === normalizeName(draft.account ?? ''))
     : [];
 
-  // Receitas nunca perguntam nada. Receita de VR/VA cai no cartão do vale, se houver.
-  if (draft.type === 'INCOME') {
-    // O cartão citado pelo nome vence a categoria: com um VR chamado "Alimentação",
-    // "recebi 600 de alimentação" vai para ele, e não para o VA.
-    const [namedVoucher, ...others] = named.filter((a) => isVoucher(a.kind));
-    if (namedVoucher && others.length === 0) {
-      const [voucherMethod = null] = methodsForKind(namedVoucher.kind);
-      return { status: 'resolved', paymentMethod: voucherMethod, accountId: namedVoucher.id };
-    }
-    const method = VOUCHER_METHOD_BY_INCOME_CATEGORY[draft.category] ?? draft.paymentMethod;
-    const candidates = method ? compatible(method, accounts, named) : [];
-    const only = candidates.length === 1 ? candidates[0] : undefined;
-    return { status: 'resolved', paymentMethod: method, accountId: only?.id ?? null };
-  }
+  if (draft.type !== 'EXPENSE') return resolveMoneyIn(draft, accounts, named);
 
   // Conta já escolhida nos botões (e ainda válida para a forma escolhida).
   if (draft.accountId !== null && draft.paymentMethod) {
@@ -75,6 +63,49 @@ export function resolveDraft(draft: PendingDraft, accounts: AccountRef[]): Draft
   if (candidates.length > 1)
     return { status: 'needs_account', paymentMethod: method, accounts: candidates };
   // Nenhuma conta desse tipo cadastrada: salva sem conta em vez de travar o registro.
+  return { status: 'resolved', paymentMethod: method, accountId: candidates[0]?.id ?? null };
+}
+
+/**
+ * Receitas, aportes e resgates: nunca perguntam a forma, só a conta (e só se houver mais
+ * de uma conta bancária). Recarga de VR/VA cai no cartão do vale.
+ */
+function resolveMoneyIn(
+  draft: PendingDraft,
+  accounts: AccountRef[],
+  named: AccountRef[],
+): DraftResolution {
+  if (draft.type === 'INCOME') {
+    // O cartão citado pelo nome vence a categoria: com um VR chamado "Alimentação",
+    // "recebi 600 de alimentação" vai para ele, e não para o VA.
+    const [namedVoucher, ...others] = named.filter((a) => isVoucher(a.kind));
+    if (namedVoucher && others.length === 0) {
+      const [voucherMethod = null] = methodsForKind(namedVoucher.kind);
+      return { status: 'resolved', paymentMethod: voucherMethod, accountId: namedVoucher.id };
+    }
+    const voucherMethod = VOUCHER_METHOD_BY_INCOME_CATEGORY[draft.category];
+    if (voucherMethod) {
+      const candidates = compatible(voucherMethod, accounts, named);
+      const only = candidates.length === 1 ? candidates[0] : undefined;
+      return { status: 'resolved', paymentMethod: voucherMethod, accountId: only?.id ?? null };
+    }
+  }
+
+  const method = draft.paymentMethod;
+  // "recebi 50 em dinheiro": não passa por conta nenhuma.
+  if (method && !ACCOUNT_KIND_BY_METHOD[method]) {
+    return { status: 'resolved', paymentMethod: method, accountId: null };
+  }
+
+  const banks = accounts.filter((a) => a.kind === 'BANK');
+  if (draft.accountId !== null && banks.some((a) => a.id === draft.accountId)) {
+    return { status: 'resolved', paymentMethod: method, accountId: draft.accountId };
+  }
+  const narrowed = banks.filter((a) => named.includes(a));
+  const candidates = narrowed.length > 0 ? narrowed : banks;
+  if (candidates.length > 1) {
+    return { status: 'needs_account', paymentMethod: method, accounts: candidates };
+  }
   return { status: 'resolved', paymentMethod: method, accountId: candidates[0]?.id ?? null };
 }
 
@@ -161,7 +192,7 @@ function compatible(
 function questionKey(question: Question): string {
   return question.status === 'needs_method'
     ? `method:${question.methods.join(',')}`
-    : `account:${question.paymentMethod}:${question.accounts.map((a) => a.id).join(',')}`;
+    : `account:${question.paymentMethod ?? '-'}:${question.accounts.map((a) => a.id).join(',')}`;
 }
 
 function unique<T>(items: T[]): T[] {

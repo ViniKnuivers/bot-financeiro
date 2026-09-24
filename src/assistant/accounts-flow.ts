@@ -2,14 +2,15 @@ import { z } from 'zod';
 import type { ActionReply, OutgoingMessage, ReplyAction } from '../channels/message-channel.js';
 import type { Logger } from '../lib/logger.js';
 import { formatCents, parseBrlToCents } from '../lib/money.js';
-import { accountLabel, isVoucher } from '../modules/accounts/account-kinds.js';
+import { accountLabel } from '../modules/accounts/account-kinds.js';
 import type { Account } from '../modules/accounts/account.repository.js';
 import {
   AccountError,
+  hasBalance,
   type AccountService,
   type NewAccountChoice,
 } from '../modules/accounts/account.service.js';
-import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
+import type { ConversationState } from './conversation-state.js';
 import { formatAccountLine, formatMonth } from './replies.js';
 
 const NEW_ACCOUNT_CHOICES = [
@@ -43,14 +44,20 @@ const chatStateSchema = z.discriminatedUnion('flow', [
   z.object({ flow: z.literal('new_account_name'), choice: z.enum(NEW_ACCOUNT_CHOICES) }),
   z.object({
     flow: z.literal('new_account_balance'),
-    choice: z.enum(['MEAL_VOUCHER', 'FOOD_VOUCHER']),
+    choice: z.enum(['BANK', 'BANK_AND_CREDIT', 'MEAL_VOUCHER', 'FOOD_VOUCHER']),
     name: z.string(),
   }),
-  z.object({ flow: z.literal('new_account_limit'), choice: creditChoice, name: z.string() }),
+  z.object({
+    flow: z.literal('new_account_limit'),
+    choice: creditChoice,
+    name: z.string(),
+    initialBalanceCents: z.int().default(0),
+  }),
   z.object({
     flow: z.literal('new_account_closing'),
     choice: creditChoice,
     name: z.string(),
+    initialBalanceCents: z.int().default(0),
     limitCents: optionalCents,
   }),
   z.object({ flow: z.literal('adjust_balance'), accountId }),
@@ -60,12 +67,6 @@ const chatStateSchema = z.discriminatedUnion('flow', [
   z.object({ flow: z.literal('rename'), accountId }),
 ]);
 type ChatState = z.infer<typeof chatStateSchema>;
-
-/**
- * Um passo esquecido não pode sequestrar mensagens para sempre: depois deste tempo sem
- * resposta, o texto volta a ser tratado como lançamento.
- */
-export const CHAT_STATE_TTL_MS = 15 * 60 * 1000;
 
 const CANCEL: ReplyAction = { label: '❌ Cancelar', id: 'ac:cancel' };
 const SKIP: ReplyAction = { label: '⏭️ Pular', id: 'ac:skip' };
@@ -77,9 +78,8 @@ const CLOSING_QUESTION =
 
 export interface AccountsFlowDeps {
   accounts: AccountService;
-  chatState: ChatStateRepository;
+  state: ConversationState;
   logger: Logger;
-  now: () => Date;
   /** Hoje ("YYYY-MM-DD") no fuso do usuário. */
   today: () => string;
 }
@@ -108,12 +108,12 @@ export class AccountsFlow {
 
   /** Esquece qualquer passo em andamento (ex.: ao abrir o menu de novo). */
   clear(): Promise<void> {
-    return this.deps.chatState.clear();
+    return this.deps.state.clear();
   }
 
   async handleAction(actionId: string): Promise<ActionReply | null> {
     if (!actionId.startsWith('ac:')) return null;
-    const [command = '', arg = '', extra = ''] = actionId.slice(3).split(':');
+    const [command = '', arg = '', extra = '', fromId = ''] = actionId.slice(3).split(':');
 
     switch (command) {
       case 'list':
@@ -184,18 +184,7 @@ export class AccountsFlow {
       case 'pay':
         return this.withAccount(arg, (account) => this.confirmInvoicePayment(account));
       case 'payok':
-        return this.withAccount(arg, async (account) => {
-          if (!/^\d{4}-\d{2}$/.test(extra)) return this.accountDetails(account);
-          await this.deps.accounts.markInvoicePaid(account, extra);
-          this.deps.logger.info(
-            { accountId: account.id, month: extra },
-            'fatura marcada como paga',
-          );
-          return this.accountDetails(
-            account,
-            `✅ Fatura de ${formatMonth(extra)} marcada como paga.\n\n`,
-          );
-        });
+        return this.withAccount(arg, (account) => this.payInvoice(account, extra, fromId));
       default:
         return this.replace(await this.menu());
     }
@@ -214,8 +203,9 @@ export class AccountsFlow {
         return this.receiveName(state.choice, text);
       case 'new_account_balance': {
         const cents = parseBrlToCents(text);
-        if (cents === null) return this.invalidAmount();
-        return this.createAccount(state.choice, state.name, { initialBalanceCents: cents });
+        if (cents === null)
+          return this.invalidAmount(state.choice.startsWith('BANK') ? [SKIP] : []);
+        return this.afterBalance(state.choice, state.name, cents);
       }
       case 'new_account_limit': {
         const cents = parsePositiveCents(text);
@@ -230,6 +220,7 @@ export class AccountsFlow {
         const day = parseClosingDay(text);
         if (day === null) return this.invalidDay();
         return this.createAccount(state.choice, state.name, {
+          initialBalanceCents: state.initialBalanceCents,
           creditLimitCents: state.limitCents,
           closingDay: day,
         });
@@ -253,17 +244,8 @@ export class AccountsFlow {
     }
   }
 
-  private async activeState(): Promise<ChatState | null> {
-    const stored = await this.deps.chatState.get();
-    if (!stored) return null;
-
-    const parsed = chatStateSchema.safeParse(stored.state);
-    const expired = this.deps.now().getTime() - stored.updatedAt.getTime() > CHAT_STATE_TTL_MS;
-    if (!parsed.success || expired) {
-      await this.clear();
-      return null;
-    }
-    return parsed.data;
+  private activeState(): Promise<ChatState | null> {
+    return this.deps.state.read(chatStateSchema);
   }
 
   /** Guarda o passo e faz a pergunta. */
@@ -272,14 +254,16 @@ export class AccountsFlow {
     text: string,
     extra: ReplyAction[] = [],
   ): Promise<OutgoingMessage> {
-    await this.deps.chatState.set(state);
+    await this.deps.state.set(state);
     return { text, actions: [[...extra, CANCEL]] };
   }
 
-  /** "Pular" no limite ou no fechamento. */
+  /** "Pular" no saldo da conta, no limite ou no fechamento. */
   private async skip(): Promise<OutgoingMessage> {
     const state = await this.activeState();
     switch (state?.flow) {
+      case 'new_account_balance':
+        return this.afterBalance(state.choice, state.name, 0);
       case 'new_account_limit':
         return this.ask(
           { ...state, flow: 'new_account_closing', limitCents: null },
@@ -288,6 +272,7 @@ export class AccountsFlow {
         );
       case 'new_account_closing':
         return this.createAccount(state.choice, state.name, {
+          initialBalanceCents: state.initialBalanceCents,
           creditLimitCents: state.limitCents,
           closingDay: null,
         });
@@ -327,16 +312,77 @@ export class AccountsFlow {
 
   private async receiveName(choice: NewAccountChoice, rawName: string): Promise<OutgoingMessage> {
     const name = rawName.trim();
-    if (choice === 'MEAL_VOUCHER' || choice === 'FOOD_VOUCHER') {
+    switch (choice) {
+      case 'MEAL_VOUCHER':
+      case 'FOOD_VOUCHER':
+        return this.ask(
+          { flow: 'new_account_balance', choice, name },
+          `Qual o saldo atual do ${name}? Digite o valor, ex.: 230,50 (ou 0).`,
+        );
+      case 'BANK':
+      case 'BANK_AND_CREDIT':
+        return this.ask(
+          { flow: 'new_account_balance', choice, name },
+          `Qual o saldo atual da conta ${name}? Veja no app do banco, ex.: 2340,50. Se não quiser acompanhar o saldo, toque em Pular.`,
+          [SKIP],
+        );
+      case 'CREDIT_CARD':
+        return this.ask(
+          { flow: 'new_account_limit', choice, name, initialBalanceCents: 0 },
+          LIMIT_QUESTION,
+          [SKIP],
+        );
+    }
+  }
+
+  /** Depois do saldo: "Conta + crédito" ainda pergunta limite e fechamento. */
+  private async afterBalance(
+    choice: 'BANK' | 'BANK_AND_CREDIT' | 'MEAL_VOUCHER' | 'FOOD_VOUCHER',
+    name: string,
+    initialBalanceCents: number,
+  ): Promise<OutgoingMessage> {
+    if (choice === 'BANK_AND_CREDIT') {
       return this.ask(
-        { flow: 'new_account_balance', choice, name },
-        `Qual o saldo atual do ${name}? Digite o valor, ex.: 230,50 (ou 0).`,
+        { flow: 'new_account_limit', choice, name, initialBalanceCents },
+        LIMIT_QUESTION,
+        [SKIP],
       );
     }
-    if (choice === 'CREDIT_CARD' || choice === 'BANK_AND_CREDIT') {
-      return this.ask({ flow: 'new_account_limit', choice, name }, LIMIT_QUESTION, [SKIP]);
+    return this.createAccount(choice, name, { initialBalanceCents });
+  }
+
+  /**
+   * Marca a fatura como paga. O dinheiro sai da única conta bancária; se houver mais de
+   * uma, pergunta qual (o botão volta aqui com `fromId`).
+   */
+  private async payInvoice(card: Account, month: string, fromId: string): Promise<OutgoingMessage> {
+    if (!/^\d{4}-\d{2}$/.test(month)) return this.accountDetails(card);
+
+    const banks = (await this.deps.accounts.listActive()).filter((a) => a.kind === 'BANK');
+    let from: Account | undefined = banks.find((a) => String(a.id) === fromId);
+    if (!from && banks.length > 1) {
+      return {
+        text: `De qual conta saiu o pagamento da fatura de ${formatMonth(month)}?`,
+        actions: [
+          ...banks.map((bank) => [
+            { label: bank.name, id: `ac:payok:${card.id}:${month}:${bank.id}` },
+          ]),
+          [{ label: '↩️ Voltar', id: `ac:open:${card.id}` }],
+        ],
+      };
     }
-    return this.createAccount(choice, name, {});
+    from ??= banks[0];
+
+    await this.deps.accounts.markInvoicePaid(card, month, from?.id ?? null);
+    this.deps.logger.info(
+      { accountId: card.id, month, from: from?.id },
+      'fatura marcada como paga',
+    );
+    const source = from ? ` (saiu da conta ${from.name})` : '';
+    return this.accountDetails(
+      card,
+      `✅ Fatura de ${formatMonth(month)} marcada como paga${source}.\n\n`,
+    );
   }
 
   private async createAccount(
@@ -437,7 +483,7 @@ export class AccountsFlow {
     const rows: ReplyAction[][] = [];
     const first: ReplyAction[] = [{ label: '✏️ Renomear', id: `ac:ren:${account.id}` }];
 
-    if (isVoucher(account.kind)) {
+    if (hasBalance(account.kind)) {
       first.push({ label: '✏️ Ajustar saldo', id: `ac:adj:${account.id}` });
     }
     rows.push(first);
@@ -478,7 +524,7 @@ export class AccountsFlow {
   }
 
   private async accountLine(account: Account): Promise<string> {
-    if (isVoucher(account.kind)) {
+    if (hasBalance(account.kind)) {
       return formatAccountLine(account, {
         balanceCents: await this.deps.accounts.balance(account),
       });

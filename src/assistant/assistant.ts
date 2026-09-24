@@ -15,17 +15,26 @@ import type {
 import type { InputSource } from '../generated/prisma/enums.js';
 import { toDateOnlyString } from '../lib/dates.js';
 import type { Logger } from '../lib/logger.js';
+import { addMonths } from '../modules/accounts/credit-invoice.js';
 import type { AccountService } from '../modules/accounts/account.service.js';
+import type { BudgetService } from '../modules/budgets/budget.service.js';
 import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
+import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
+import type { ReportService } from '../modules/reports/report.service.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
 import { AccountsFlow } from './accounts-flow.js';
+import { BudgetFlow } from './budget-flow.js';
+import { ConversationState } from './conversation-state.js';
 import { PaymentFlow, UNDO_PREFIX } from './payment-flow.js';
+import { RecurringFlow } from './recurring-flow.js';
 import {
   formatHeard,
   formatLatest,
+  formatMonthSummary,
   formatParserError,
   formatPendingFooter,
+  formatRegistered,
   formatUndone,
   formatUndoneLast,
   WELCOME,
@@ -37,12 +46,17 @@ export interface AssistantDeps {
   accounts: AccountService;
   pending: PendingRepository;
   chatState: ChatStateRepository;
+  recurring: RecurringService;
+  reports: ReportService;
+  budgets: BudgetService;
   logger: Logger;
-  /** Relógio injetável, para testar a expiração dos passos de conversa e as faturas. */
+  /** Relógio injetável, para testar expirações, faturas e gastos fixos. */
   now?: () => Date;
-  /** Fuso do usuário, para saber que dia é hoje (fatura aberta). Padrão: São Paulo. */
+  /** Fuso do usuário, para saber que dia é hoje. Padrão: São Paulo. */
   timeZone?: string;
 }
+
+const SUMMARY_PREFIX = 'rs:';
 
 /**
  * O "cérebro" do bot, independente de canal. Recebe a mensagem e decide o caminho:
@@ -52,19 +66,32 @@ export interface AssistantDeps {
 export class Assistant implements MessageHandler {
   private readonly payments: PaymentFlow;
   private readonly accountsFlow: AccountsFlow;
+  private readonly budgetFlow: BudgetFlow;
+  private readonly recurringFlow: RecurringFlow;
+  private readonly now: () => Date;
+  private readonly today: () => string;
 
   constructor(private readonly deps: AssistantDeps) {
-    const now = deps.now ?? (() => new Date());
+    this.now = deps.now ?? (() => new Date());
     const timeZone = deps.timeZone ?? 'America/Sao_Paulo';
-    const today = () => toDateOnlyString(now(), timeZone);
+    this.today = () => toDateOnlyString(this.now(), timeZone);
+    const state = new ConversationState(deps.chatState, this.now);
 
-    this.payments = new PaymentFlow({ ...deps, today });
+    this.payments = new PaymentFlow({ ...deps, today: this.today });
     this.accountsFlow = new AccountsFlow({
       accounts: deps.accounts,
-      chatState: deps.chatState,
+      state,
       logger: deps.logger,
-      now,
-      today,
+      today: this.today,
+    });
+    this.budgetFlow = new BudgetFlow({ ...deps, state, today: this.today });
+    this.recurringFlow = new RecurringFlow({
+      ...deps,
+      payments: this.payments,
+      state,
+      today: this.today,
+      now: this.now,
+      interpret: (text) => this.interpret({ text, now: this.now() }),
     });
   }
 
@@ -74,7 +101,10 @@ export class Assistant implements MessageHandler {
 
   async handleText(message: IncomingTextMessage): Promise<OutgoingMessage> {
     // Se o bot acabou de perguntar algo (ex.: "Qual o nome do cartão?"), o texto é a resposta.
-    const flowReply = await this.accountsFlow.handleText(message.text);
+    const flowReply =
+      (await this.accountsFlow.handleText(message.text)) ??
+      (await this.budgetFlow.handleText(message.text)) ??
+      (await this.recurringFlow.handleText(message.text));
     if (flowReply) return flowReply;
 
     return this.process({
@@ -99,6 +129,36 @@ export class Assistant implements MessageHandler {
     });
   }
 
+  /**
+   * Chama a IA com o contexto do usuário (cartões e destinos de investimento já usados).
+   * Erros da IA viram uma mensagem pronta para responder.
+   */
+  private async interpret(input: ParseInput): Promise<ParseResult | OutgoingMessage> {
+    const { parser, accounts, reports, logger } = this.deps;
+    try {
+      const [known, investments] = await Promise.all([
+        accounts.listActive(),
+        reports.investments(),
+      ]);
+      const result = await parser.parse({
+        ...input,
+        accounts: known.map(({ name, kind }) => ({ name, kind })),
+        investmentDestinations: investments.map((p) => p.destination),
+      });
+      logger.debug(
+        { intent: result.intent, count: result.transactions.length },
+        'ia: interpretado',
+      );
+      return result;
+    } catch (error) {
+      if (error instanceof TransactionParserError) {
+        logger.error({ err: error, rawResponse: error.rawResponse }, `ia: ${error.reason}`);
+        return { text: formatParserError(error.reason) };
+      }
+      throw error;
+    }
+  }
+
   /** Fluxo comum a texto e áudio: interpretar → salvar ou perguntar → responder. */
   private async process({
     parseInput,
@@ -109,27 +169,9 @@ export class Assistant implements MessageHandler {
     source: InputSource;
     rawInputFor: (result: ParseResult) => string;
   }): Promise<OutgoingMessage> {
-    const { parser, accounts, logger } = this.deps;
+    const result = await this.interpret(parseInput);
+    if (!('intent' in result)) return result;
 
-    let result;
-    try {
-      const known = await accounts.listActive();
-      result = await parser.parse({
-        ...parseInput,
-        accounts: known.map(({ name, kind }) => ({ name, kind })),
-      });
-    } catch (error) {
-      if (error instanceof TransactionParserError) {
-        logger.error({ err: error, rawResponse: error.rawResponse }, `ia: ${error.reason}`);
-        return { text: formatParserError(error.reason) };
-      }
-      throw error;
-    }
-
-    logger.debug(
-      { source, intent: result.intent, count: result.transactions.length },
-      'ia: interpretado',
-    );
     // No áudio, mostrar o que a IA ouviu ajuda a entender um registro errado.
     const heard = source === 'AUDIO' && result.transcript ? formatHeard(result.transcript) : '';
 
@@ -149,10 +191,17 @@ export class Assistant implements MessageHandler {
 
   async handleAction(actionId: string): Promise<ActionReply> {
     if (actionId.startsWith(UNDO_PREFIX)) return this.undoBatch(actionId);
+    if (actionId.startsWith(SUMMARY_PREFIX)) {
+      const month = actionId.slice(SUMMARY_PREFIX.length);
+      if (/^\d{4}-\d{2}$/.test(month))
+        return { mode: 'replace', ...(await this.handleSummary(month)) };
+    }
 
     const reply =
       (await this.payments.handleAction(actionId)) ??
-      (await this.accountsFlow.handleAction(actionId));
+      (await this.accountsFlow.handleAction(actionId)) ??
+      (await this.budgetFlow.handleAction(actionId)) ??
+      (await this.recurringFlow.handleAction(actionId));
     if (reply) return reply;
 
     this.deps.logger.warn({ actionId }, 'ação desconhecida');
@@ -184,6 +233,42 @@ export class Assistant implements MessageHandler {
 
   handlePending(): Promise<OutgoingMessage[]> {
     return this.payments.listPending();
+  }
+
+  /** Resumo de um mês (padrão: o atual), com botões para navegar entre meses. */
+  async handleSummary(month = this.today().slice(0, 7)): Promise<OutgoingMessage> {
+    const { reports, budgets } = this.deps;
+    const summary = await reports.month(month);
+    const current = this.today().slice(0, 7);
+    const [balances, status] = await Promise.all([
+      month === current ? reports.balances() : Promise.resolve([]),
+      budgets.status(summary),
+    ]);
+    const navigation = [
+      { label: '◀ Mês anterior', id: `${SUMMARY_PREFIX}${addMonths(month, -1)}` },
+    ];
+    if (month < current) {
+      navigation.push({ label: 'Mês seguinte ▶', id: `${SUMMARY_PREFIX}${addMonths(month, 1)}` });
+    }
+    return { text: formatMonthSummary(summary, balances, status), actions: [navigation] };
+  }
+
+  handleBudgets(): Promise<OutgoingMessage> {
+    return this.budgetFlow.menu();
+  }
+
+  handleRecurring(): Promise<OutgoingMessage> {
+    return this.recurringFlow.menu();
+  }
+
+  /** Mensagens avisando dos gastos fixos que a tarefa automática acabou de lançar. */
+  async announceRecurring(runs: readonly RecurringRun[]): Promise<OutgoingMessage[]> {
+    if (runs.length === 0) return [];
+    const accounts = new Map((await this.deps.accounts.listAll()).map((a) => [a.id, a]));
+    return runs.map(({ batch }) => ({
+      text: `🔁 Lancei um gasto fixo:\n\n${formatRegistered(batch.transactions, accounts)}`,
+      actions: [[{ label: '↩️ Desfazer', id: `${UNDO_PREFIX}${batch.batchId}` }]],
+    }));
   }
 
   private async undoBatch(actionId: string): Promise<ActionReply> {

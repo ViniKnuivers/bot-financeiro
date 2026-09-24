@@ -18,6 +18,8 @@ datasource db {
 enum TransactionType {
   EXPENSE
   INCOME
+  INVESTMENT // aporte: sai da conta para um investimento
+  REDEMPTION // resgate: volta de um investimento para a conta
 }
 
 // Um único enum para despesas e receitas mantém a tabela simples. A regra
@@ -42,6 +44,8 @@ enum Category {
   OUTROS_RECEITA
   VALE_REFEICAO
   VALE_ALIMENTACAO
+  // Aportes e resgates (o destino, ex.: "Tesouro Selic", fica na descrição)
+  INVESTIMENTO
 }
 
 enum PaymentMethod {
@@ -57,6 +61,7 @@ enum PaymentMethod {
 enum InputSource {
   TEXT
   AUDIO
+  RECURRING // lançado automaticamente por um gasto fixo
 }
 
 model Transaction {
@@ -120,7 +125,9 @@ model Account {
   archivedAt            DateTime?        @db.Timestamptz(3)
   createdAt             DateTime         @default(now()) @db.Timestamptz(3)
   transactions          Transaction[]
-  invoicePayments       InvoicePayment[]
+  invoicePayments       InvoicePayment[] @relation("InvoiceCard")
+  invoicesPaidFrom      InvoicePayment[] @relation("InvoicePaidFrom")
+  recurringEntries      RecurringEntry[]
 
   @@map("accounts")
 }
@@ -129,13 +136,17 @@ model Account {
 /// Só vira Transaction quando tudo estiver resolvido.
 model PendingEntry {
   // Inteiro curto, pelo mesmo motivo do Account.id (callback_data).
-  id         Int         @id @default(autoincrement())
+  id           Int            @id @default(autoincrement())
   // Rascunhos da IA + escolhas já feitas nos botões. Revalidado com Zod ao ler.
-  drafts     Json
-  rawInput   String
-  source     InputSource
-  receivedAt DateTime    @db.Timestamptz(3)
-  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+  drafts       Json
+  rawInput     String
+  source       InputSource
+  receivedAt   DateTime       @db.Timestamptz(3)
+  // O que fazer quando tudo estiver respondido: salvar o lançamento ou cadastrar um
+  // gasto fixo (que reaproveita as mesmas perguntas de pagamento).
+  purpose      PendingPurpose @default(TRANSACTION)
+  recurringDay Int?
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
 
   @@map("pending_entries")
 }
@@ -153,13 +164,61 @@ model ChatState {
 /// Fatura de cartão de crédito marcada como paga ("Paguei a fatura"): libera o limite
 /// das compras daquela fatura.
 model InvoicePayment {
-  id           Int      @id @default(autoincrement())
-  accountId    Int
-  account      Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  id                Int      @id @default(autoincrement())
+  accountId         Int
+  account           Account  @relation("InvoiceCard", fields: [accountId], references: [id], onDelete: Restrict)
   // Mês em que a fatura fecha, "YYYY-MM".
-  invoiceMonth String
-  paidAt       DateTime @default(now()) @db.Timestamptz(3)
+  invoiceMonth      String
+  // Valor da fatura no momento do pagamento e a conta de onde saiu (entra no saldo dela).
+  amountCents       Int      @default(0)
+  paidFromAccountId Int?
+  paidFrom          Account? @relation("InvoicePaidFrom", fields: [paidFromAccountId], references: [id], onDelete: Restrict)
+  paidAt            DateTime @default(now()) @db.Timestamptz(3)
 
   @@unique([accountId, invoiceMonth])
   @@map("invoice_payments")
+}
+
+enum PendingPurpose {
+  TRANSACTION
+  RECURRING
+}
+
+/// Limite mensal de gastos de uma categoria (/orcamento).
+model Budget {
+  id         Int      @id @default(autoincrement())
+  category   Category @unique
+  limitCents Int
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("budgets")
+}
+
+/// Gasto (ou receita) fixo lançado automaticamente todo mês (/fixos).
+model RecurringEntry {
+  id            Int             @id @default(autoincrement())
+  type          TransactionType
+  amountCents   Int
+  description   String
+  category      Category
+  paymentMethod PaymentMethod?
+  accountId     Int?
+  account       Account?        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  // Dia do mês (1 a 31; em meses mais curtos, vira o último dia).
+  dayOfMonth    Int
+  active        Boolean         @default(true)
+  // Último mês ("YYYY-MM") em que foi lançado: garante no máximo um lançamento por mês.
+  lastRunMonth  String?
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@map("recurring_entries")
+}
+
+/// Estado das tarefas automáticas (ex.: último mês com resumo enviado).
+model JobState {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("job_state")
 }

@@ -89,13 +89,22 @@ export interface CreditSummary {
  * Fatura atual e limite disponível. O disponível desconta TODAS as parcelas de faturas não
  * pagas, inclusive as futuras, porque o banco reserva o valor total da compra no limite.
  */
-export function summarizeCredit(input: CreditSummaryInput): CreditSummary {
+/** Total de cada fatura ("YYYY-MM" → centavos), somando as parcelas de todas as compras. */
+export function invoiceTotalsByMonth(
+  purchases: CreditPurchase[],
+  closingDay: number,
+): Map<string, number> {
   const byMonth = new Map<string, number>();
-  for (const purchase of input.purchases) {
-    for (const { invoiceMonth, amountCents } of installmentSchedule(purchase, input.closingDay)) {
+  for (const purchase of purchases) {
+    for (const { invoiceMonth, amountCents } of installmentSchedule(purchase, closingDay)) {
       byMonth.set(invoiceMonth, (byMonth.get(invoiceMonth) ?? 0) + amountCents);
     }
   }
+  return byMonth;
+}
+
+export function summarizeCredit(input: CreditSummaryInput): CreditSummary {
+  const byMonth = invoiceTotalsByMonth(input.purchases, input.closingDay);
 
   const paid = new Set(input.paidMonths);
   const openInvoiceMonth = invoiceMonthFor(input.today, input.closingDay);

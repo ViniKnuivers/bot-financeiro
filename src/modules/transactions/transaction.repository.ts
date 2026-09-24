@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient, Transaction } from '../../generated/prisma/client.js';
 import type { CreditPurchase } from '../accounts/credit-invoice.js';
+import type { ReportTransaction } from '../reports/monthly-report.js';
 import type {
   Category,
   InputSource,
@@ -22,10 +23,8 @@ export interface NewTransaction {
   installments: number;
 }
 
-export interface AccountTotals {
-  incomeCents: number;
-  expenseCents: number;
-}
+/** Soma dos lançamentos de uma conta, por tipo. */
+export type AccountTotals = Record<TransactionType, number>;
 
 /** Acesso a dados isolado atrás de uma interface: o service é testável sem banco. */
 export interface TransactionRepository {
@@ -40,6 +39,8 @@ export interface TransactionRepository {
   sumByAccount(accountId: number): Promise<AccountTotals>;
   /** Compras (despesas) de um cartão, para calcular faturas e limite. */
   listPurchasesByAccount(accountId: number): Promise<CreditPurchase[]>;
+  /** Todos os lançamentos, só com os campos dos relatórios. */
+  listForReports(): Promise<ReportTransaction[]>;
 }
 
 /**
@@ -85,15 +86,35 @@ export class PrismaTransactionRepository implements TransactionRepository {
       where: { accountId },
       _sum: { amountCents: true },
     });
-    const total = (type: string) =>
+    const total = (type: TransactionType) =>
       groups.find((group) => group.type === type)?._sum.amountCents ?? 0;
-    return { incomeCents: total('INCOME'), expenseCents: total('EXPENSE') };
+    return {
+      EXPENSE: total('EXPENSE'),
+      INCOME: total('INCOME'),
+      INVESTMENT: total('INVESTMENT'),
+      REDEMPTION: total('REDEMPTION'),
+    };
   }
 
   listPurchasesByAccount(accountId: number): Promise<CreditPurchase[]> {
     return this.prisma.transaction.findMany({
       where: { accountId, type: 'EXPENSE' },
       select: { amountCents: true, installments: true, occurredAt: true },
+    });
+  }
+
+  listForReports(): Promise<ReportTransaction[]> {
+    return this.prisma.transaction.findMany({
+      select: {
+        type: true,
+        amountCents: true,
+        category: true,
+        description: true,
+        paymentMethod: true,
+        accountId: true,
+        installments: true,
+        occurredAt: true,
+      },
     });
   }
 }

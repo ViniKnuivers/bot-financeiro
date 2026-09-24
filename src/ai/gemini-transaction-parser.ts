@@ -69,6 +69,7 @@ export class GeminiTransactionParser implements TransactionParser {
         today: toDateOnlyString(input.now, this.timeZone),
         timeZone: this.timeZone,
         accounts,
+        investmentDestinations: input.investmentDestinations ?? [],
       }),
       responseJsonSchema: buildParseResultJsonSchema(accounts.map((a) => a.name)),
       timeoutMs: input.audio ? this.audioTimeoutMs : this.timeoutMs,

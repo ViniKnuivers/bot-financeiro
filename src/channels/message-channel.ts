@@ -51,9 +51,20 @@ export interface MessageHandler {
   handleAccounts(): Promise<OutgoingMessage>;
   /** Lançamentos esperando resposta (uma mensagem por pendência). */
   handlePending(): Promise<OutgoingMessage[]>;
+  /** Resumo do mês. */
+  handleSummary(): Promise<OutgoingMessage>;
+  /** Menu de orçamento por categoria. */
+  handleBudgets(): Promise<OutgoingMessage>;
+  /** Menu de gastos fixos. */
+  handleRecurring(): Promise<OutgoingMessage>;
 }
 
-export interface MessageChannel {
+/** Envia mensagens por iniciativa do bot (gastos fixos, aviso do dia 1, alertas). */
+export interface Notifier {
+  notify(message: OutgoingMessage): Promise<void>;
+}
+
+export interface MessageChannel extends Notifier {
   readonly name: string;
   /** Resolve quando o canal já está recebendo mensagens. */
   start(): Promise<void>;

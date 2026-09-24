@@ -158,12 +158,52 @@ describe('resolveDraft', () => {
       });
     });
 
-    it('salário não pergunta forma de pagamento', () => {
+    it('salário cai sozinho na única conta bancária, sem perguntar a forma', () => {
       const salario = draft({ type: 'INCOME', category: 'SALARIO' });
 
       expect(resolveDraft(salario, ACCOUNTS)).toEqual({
         status: 'resolved',
         paymentMethod: null,
+        accountId: ITAU_CONTA.id,
+      });
+    });
+
+    it('com duas contas bancárias, pergunta em qual caiu', () => {
+      const nubank: AccountRef = { id: 20, name: 'Nubank', kind: 'BANK' };
+      const salario = draft({ type: 'INCOME', category: 'SALARIO' });
+
+      expect(resolveDraft(salario, [...ACCOUNTS, nubank])).toEqual({
+        status: 'needs_account',
+        paymentMethod: null,
+        accounts: [ITAU_CONTA, nubank],
+      });
+      // Citando o banco, não pergunta.
+      expect(resolveDraft({ ...salario, account: 'Nubank' }, [...ACCOUNTS, nubank])).toMatchObject({
+        status: 'resolved',
+        accountId: nubank.id,
+      });
+    });
+
+    it.each(['INVESTMENT', 'REDEMPTION'] as const)('%s usa a conta bancária', (type) => {
+      const movimento = draft({ type, category: 'INVESTIMENTO', description: 'Tesouro Selic' });
+
+      expect(resolveDraft(movimento, ACCOUNTS)).toEqual({
+        status: 'resolved',
+        paymentMethod: null,
+        accountId: ITAU_CONTA.id,
+      });
+    });
+
+    it('receita em dinheiro não passa por conta', () => {
+      const venda = draft({
+        type: 'INCOME',
+        category: 'OUTROS_RECEITA',
+        paymentMethod: 'DINHEIRO',
+      });
+
+      expect(resolveDraft(venda, ACCOUNTS)).toEqual({
+        status: 'resolved',
+        paymentMethod: 'DINHEIRO',
         accountId: null,
       });
     });
