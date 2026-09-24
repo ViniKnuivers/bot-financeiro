@@ -22,13 +22,31 @@ export type ParseResult = z.infer<typeof parseResultSchema>;
  * O Gemini não suporta `pattern` (que o Zod gera para datas ISO); o `format: "date"`
  * que fica no lugar já orienta o modelo, e a validação real é feita pelo Zod depois.
  */
-const { $schema, ...jsonSchema } = z.toJSONSchema(parseResultSchema, {
+const { $schema, ...baseJsonSchema } = z.toJSONSchema(parseResultSchema, {
   target: 'draft-2020-12',
   override: (ctx) => {
     delete ctx.jsonSchema.pattern;
   },
 });
-export const parseResultJsonSchema = jsonSchema;
+
+/**
+ * JSON Schema de uma chamada: o campo `account` vira um enum com os nomes dos cartões
+ * cadastrados, para a IA só poder devolver um nome que existe (ou null).
+ */
+export function buildParseResultJsonSchema(
+  accountNames: readonly string[],
+): Record<string, unknown> {
+  // O Zod tipa o JSON Schema de forma genérica; aqui sabemos o formato exato do nosso.
+  const schema = structuredClone(baseJsonSchema) as unknown as {
+    properties: { transactions: { items: { properties: Record<string, unknown> } } };
+  };
+  const names = [...new Set(accountNames)];
+  schema.properties.transactions.items.properties.account =
+    names.length > 0
+      ? { anyOf: [{ type: 'string', enum: names }, { type: 'null' }] }
+      : { type: 'null' };
+  return schema;
+}
 
 /**
  * Validação completa, com as regras que não cabem no JSON Schema.

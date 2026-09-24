@@ -19,6 +19,8 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   ESTAGIO: 'Estágio',
   FREELA: 'Freela',
   OUTROS_RECEITA: 'Outras receitas',
+  VALE_REFEICAO: 'Vale-refeição',
+  VALE_ALIMENTACAO: 'Vale-alimentação',
 };
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -26,6 +28,8 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CREDITO: 'Crédito',
   DEBITO: 'Débito',
   DINHEIRO: 'Dinheiro',
+  VR: 'VR',
+  VA: 'VA',
   OUTRO: 'Outro',
 };
 

@@ -4,8 +4,14 @@ import { parseDateOnly } from '../../lib/dates.js';
 import type { Transaction, TransactionRepository } from './transaction.repository.js';
 import type { TransactionDraft } from './transaction.schemas.js';
 
+/**
+ * Rascunho com a forma de pagamento e a conta já decididas (pela IA, pelo resolver de
+ * pagamento ou pelos botões). O nome da conta citado pela IA não é mais necessário aqui.
+ */
+export type ResolvedDraft = Omit<TransactionDraft, 'account'> & { accountId: number | null };
+
 export interface RegisterInput {
-  drafts: TransactionDraft[];
+  drafts: ResolvedDraft[];
   /** Texto original ou transcrição do áudio, guardado para auditoria. */
   rawInput: string;
   source: InputSource;
@@ -40,6 +46,8 @@ export class TransactionService {
         occurredAt: parseDateOnly(draft.occurredAt),
         rawInput,
         source,
+        accountId: draft.accountId,
+        installments: draft.installments,
       })),
     );
     return { batchId, transactions };

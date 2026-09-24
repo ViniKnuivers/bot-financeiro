@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { toDateOnlyString } from '../lib/dates.js';
 import type { Logger } from '../lib/logger.js';
 import { buildTransactionParserPrompt } from '../prompts/transaction-parser.prompt.js';
-import { parseResultJsonSchema, validParseResultSchema } from './parse-result.schema.js';
+import { buildParseResultJsonSchema, validParseResultSchema } from './parse-result.schema.js';
 import {
   TransactionParserError,
   type ParseInput,
@@ -26,6 +26,14 @@ export interface GeminiTransactionParserOptions {
   audioTimeoutMs?: number;
   /** Quantas vezes percorrer a lista de modelos de novo se todos falharem. */
   retriesOnUnavailable?: number;
+}
+
+/** O que muda de uma chamada para outra (o resto vem da configuração do parser). */
+interface GenerateRequest {
+  parts: Part[];
+  systemInstruction: string;
+  responseJsonSchema: Record<string, unknown>;
+  timeoutMs: number;
 }
 
 /** Falhas específicas de um modelo, que valem tentar em outro. */
@@ -54,13 +62,18 @@ export class GeminiTransactionParser implements TransactionParser {
 
   async parse(input: ParseInput): Promise<ParseResult> {
     const parts = buildParts(input);
-    const systemInstruction = buildTransactionParserPrompt({
-      today: toDateOnlyString(input.now, this.timeZone),
-      timeZone: this.timeZone,
-    });
-
-    const timeoutMs = input.audio ? this.audioTimeoutMs : this.timeoutMs;
-    const raw = await this.generateWithRetry(parts, systemInstruction, timeoutMs);
+    const accounts = input.accounts ?? [];
+    const request: GenerateRequest = {
+      parts,
+      systemInstruction: buildTransactionParserPrompt({
+        today: toDateOnlyString(input.now, this.timeZone),
+        timeZone: this.timeZone,
+        accounts,
+      }),
+      responseJsonSchema: buildParseResultJsonSchema(accounts.map((a) => a.name)),
+      timeoutMs: input.audio ? this.audioTimeoutMs : this.timeoutMs,
+    };
+    const raw = await this.generateWithRetry(request);
     return validate(raw);
   }
 
@@ -69,11 +82,7 @@ export class GeminiTransactionParser implements TransactionParser {
    * sem responder, enquanto outros funcionam normalmente. Nesses dois casos, passa para o
    * próximo modelo da lista. Qualquer outro erro (chave, limite de uso) para na hora.
    */
-  private async generateWithRetry(
-    parts: Part[],
-    systemInstruction: string,
-    timeoutMs: number,
-  ): Promise<string> {
+  private async generateWithRetry(request: GenerateRequest): Promise<string> {
     let lastError: TransactionParserError | undefined;
 
     for (let round = 0; round <= this.retriesOnUnavailable; round++) {
@@ -81,7 +90,7 @@ export class GeminiTransactionParser implements TransactionParser {
 
       for (const model of this.modelChain) {
         try {
-          return await this.generate(model, parts, systemInstruction, timeoutMs);
+          return await this.generate(model, request);
         } catch (error) {
           if (!(error instanceof TransactionParserError) || !FALLBACK_REASONS.has(error.reason)) {
             throw error;
@@ -98,21 +107,16 @@ export class GeminiTransactionParser implements TransactionParser {
     throw lastError ?? new TransactionParserError('unavailable', 'nenhum modelo configurado');
   }
 
-  private async generate(
-    model: string,
-    parts: Part[],
-    systemInstruction: string,
-    timeoutMs: number,
-  ): Promise<string> {
-    const signal = AbortSignal.timeout(timeoutMs);
+  private async generate(model: string, request: GenerateRequest): Promise<string> {
+    const signal = AbortSignal.timeout(request.timeoutMs);
     try {
       const response = await this.models.generateContent({
         model,
-        contents: [{ role: 'user', parts }],
+        contents: [{ role: 'user', parts: request.parts }],
         config: {
-          systemInstruction,
+          systemInstruction: request.systemInstruction,
           responseMimeType: 'application/json',
-          responseJsonSchema: parseResultJsonSchema,
+          responseJsonSchema: request.responseJsonSchema,
           // Extração simples não precisa de raciocínio longo: menos latência e menos cota.
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           abortSignal: signal,

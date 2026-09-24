@@ -15,6 +15,8 @@ const almoco = {
   description: 'Almoço',
   category: 'ALIMENTACAO',
   paymentMethod: 'PIX',
+  account: null,
+  installments: 1,
   occurredAt: '2026-09-23',
 };
 
@@ -259,6 +261,79 @@ describe('GeminiTransactionParser', () => {
 
       expect(error.reason).toBe('unavailable');
       expect(generateContent).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('cartões do usuário', () => {
+    const accounts = [
+      { name: 'Itaú', kind: 'BANK' as const },
+      { name: 'Itaú', kind: 'CREDIT_CARD' as const },
+      { name: 'VA', kind: 'FOOD_VOUCHER' as const },
+    ];
+
+    it('limita "account" aos nomes cadastrados, sem repetir', async () => {
+      const { parser, generateContent, call } = setup();
+      generateContent.mockResolvedValue(registerResponse());
+
+      await parser.parse({ text: 'almoço 32', now: NOW, accounts });
+
+      expect(call().config?.responseJsonSchema).toMatchObject({
+        properties: {
+          transactions: {
+            items: {
+              properties: {
+                account: { anyOf: [{ type: 'string', enum: ['Itaú', 'VA'] }, { type: 'null' }] },
+              },
+            },
+          },
+        },
+      });
+    });
+
+    it('sem cartões, "account" só pode ser null', async () => {
+      const { parser, generateContent, call } = setup();
+      generateContent.mockResolvedValue(registerResponse());
+
+      await parser.parse({ text: 'almoço 32', now: NOW });
+
+      expect(call().config?.responseJsonSchema).toMatchObject({
+        properties: { transactions: { items: { properties: { account: { type: 'null' } } } } },
+      });
+    });
+
+    it('lista os cartões no prompt, agrupando os tipos pelo nome', async () => {
+      const { parser, generateContent, call } = setup();
+      generateContent.mockResolvedValue(registerResponse());
+
+      await parser.parse({ text: 'almoço 32', now: NOW, accounts });
+
+      const prompt = call().config?.systemInstruction;
+      expect(prompt).toContain('"Itaú": conta bancária (débito e pix), cartão de crédito');
+      expect(prompt).toContain('"VA": vale-alimentação (VA)');
+    });
+
+    it('aceita a recarga de VA como receita', async () => {
+      const { parser, generateContent } = setup();
+      generateContent.mockResolvedValue(
+        registerResponse([
+          {
+            ...almoco,
+            type: 'INCOME',
+            amountCents: 60000,
+            description: 'VA',
+            category: 'VALE_ALIMENTACAO',
+            paymentMethod: 'VA',
+            account: 'VA',
+          },
+        ]),
+      );
+
+      const result = await parser.parse({ text: 'recebi 600 de VA', now: NOW, accounts });
+
+      expect(result.transactions[0]).toMatchObject({
+        type: 'INCOME',
+        category: 'VALE_ALIMENTACAO',
+      });
     });
   });
 });

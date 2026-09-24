@@ -25,18 +25,32 @@ export interface ReplyAction {
 
 export interface OutgoingMessage {
   text: string;
-  actions?: ReplyAction[];
+  /** Botões em linhas: cada array interno é uma linha. */
+  actions?: ReplyAction[][];
+}
+
+/**
+ * Resposta ao toque num botão. "replace" troca o texto e os botões da mensagem tocada
+ * (perguntas em vários passos); "append" acrescenta o texto e remove os botões
+ * (ex.: "↩️ Desfeito" embaixo do resumo).
+ */
+export interface ActionReply extends OutgoingMessage {
+  mode: 'replace' | 'append';
 }
 
 export interface MessageHandler {
   handleStart(): OutgoingMessage;
   handleText(message: IncomingTextMessage): Promise<OutgoingMessage>;
   handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage>;
-  handleAction(actionId: string): Promise<OutgoingMessage>;
+  handleAction(actionId: string): Promise<ActionReply>;
   /** Últimos lançamentos registrados. */
   handleLatest(): Promise<OutgoingMessage>;
   /** Apaga o último lançamento registrado. */
   handleUndoLast(): Promise<OutgoingMessage>;
+  /** Menu de cartões e contas. */
+  handleAccounts(): Promise<OutgoingMessage>;
+  /** Lançamentos esperando resposta (uma mensagem por pendência). */
+  handlePending(): Promise<OutgoingMessage[]>;
 }
 
 export interface MessageChannel {

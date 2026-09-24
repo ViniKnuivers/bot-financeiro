@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryTransactionRepository } from '../../test/in-memory-transaction-repository.js';
-import type { TransactionDraft } from './transaction.schemas.js';
-import { TransactionService } from './transaction.service.js';
+import { TransactionService, type ResolvedDraft } from './transaction.service.js';
 
-function draft(overrides: Partial<TransactionDraft> = {}): TransactionDraft {
+function draft(overrides: Partial<ResolvedDraft> = {}): ResolvedDraft {
   return {
     type: 'EXPENSE',
     amountCents: 3200,
     description: 'Almoço',
     category: 'ALIMENTACAO',
     paymentMethod: 'PIX',
+    accountId: null,
+    installments: 1,
     occurredAt: '2026-09-23',
     ...overrides,
   };
@@ -63,6 +64,18 @@ describe('TransactionService', () => {
       });
 
       expect(repository.rows[0]?.occurredAt.toISOString()).toBe('2026-09-01T00:00:00.000Z');
+    });
+
+    it('guarda a conta e o número de parcelas', async () => {
+      const { service, repository } = setup();
+
+      await service.register({
+        drafts: [draft({ paymentMethod: 'CREDITO', accountId: 7, installments: 3 })],
+        rawInput: 'tênis 300 em 3x',
+        source: 'TEXT',
+      });
+
+      expect(repository.rows[0]).toMatchObject({ accountId: 7, installments: 3 });
     });
 
     it('mantém o valor em centavos inteiros', async () => {

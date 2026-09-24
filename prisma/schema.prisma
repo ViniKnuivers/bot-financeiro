@@ -40,6 +40,8 @@ enum Category {
   ESTAGIO
   FREELA
   OUTROS_RECEITA
+  VALE_REFEICAO
+  VALE_ALIMENTACAO
 }
 
 enum PaymentMethod {
@@ -47,6 +49,8 @@ enum PaymentMethod {
   CREDITO
   DEBITO
   DINHEIRO
+  VR
+  VA
   OUTRO
 }
 
@@ -72,10 +76,71 @@ model Transaction {
   // Agrupa as transações criadas pela mesma mensagem ("almoço 32 e uber 18").
   // É o que o botão "Desfazer" referencia no callback_data (limite de 64 bytes).
   batchId       String          @db.Uuid
+  // Cartão ou conta de onde saiu (ou para onde entrou) o dinheiro. Opcional: dinheiro
+  // vivo não tem conta, e lançamentos antigos não tinham esse campo.
+  accountId     Int?
+  account       Account?        @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  // Compra parcelada ("300 em 3x"): amountCents é o total; as parcelas são calculadas.
+  installments  Int             @default(1)
   createdAt     DateTime        @default(now()) @db.Timestamptz(3)
 
+  @@index([accountId])
   @@index([batchId])
   @@index([createdAt])
   @@index([occurredAt])
   @@map("transactions")
+}
+
+enum AccountKind {
+  BANK // conta bancária: débito e pix
+  CREDIT_CARD
+  MEAL_VOUCHER // VR
+  FOOD_VOUCHER // VA
+}
+
+/// Cartões e contas do usuário ("Itaú", "Santander", "VA").
+/// "Itaú com conta e crédito" vira duas linhas com o mesmo nome, uma de cada tipo.
+model Account {
+  // Inteiro (e não UUID) de propósito: vai no callback_data dos botões do Telegram,
+  // que tem limite de 64 bytes, junto com o id da pendência.
+  id                  Int           @id @default(autoincrement())
+  name                String
+  kind                AccountKind
+  // VR/VA: saldo informado no cadastro (ou no "Ajustar saldo"). O saldo atual é sempre
+  // calculado: inicial + receitas - despesas. Nunca é guardado pronto.
+  initialBalanceCents Int           @default(0)
+  // Crédito (fase B).
+  creditLimitCents    Int?
+  closingDay          Int?
+  // Remover no menu arquiva, para não perder o histórico das transações.
+  archivedAt          DateTime?     @db.Timestamptz(3)
+  createdAt           DateTime      @default(now()) @db.Timestamptz(3)
+  transactions        Transaction[]
+
+  @@map("accounts")
+}
+
+/// Lançamento interpretado pela IA esperando uma resposta (forma de pagamento ou cartão).
+/// Só vira Transaction quando tudo estiver resolvido.
+model PendingEntry {
+  // Inteiro curto, pelo mesmo motivo do Account.id (callback_data).
+  id         Int         @id @default(autoincrement())
+  // Rascunhos da IA + escolhas já feitas nos botões. Revalidado com Zod ao ler.
+  drafts     Json
+  rawInput   String
+  source     InputSource
+  receivedAt DateTime    @db.Timestamptz(3)
+  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@map("pending_entries")
+}
+
+/// Estado de conversas de vários passos (ex.: cadastro de cartão), para o nome digitado
+/// ir para o cadastro e não para a IA. Uma linha só: o bot tem um único usuário.
+model ChatState {
+  id        Int      @id @default(1)
+  state     Json
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("chat_state")
 }

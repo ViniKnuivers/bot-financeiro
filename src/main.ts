@@ -6,6 +6,10 @@ import { TelegramChannel } from './channels/telegram/telegram-channel.js';
 import { loadEnv, type Env } from './config/env.js';
 import { buildServer } from './http/server.js';
 import { createPrismaClient } from './lib/prisma.js';
+import { PrismaAccountRepository } from './modules/accounts/account.repository.js';
+import { AccountService } from './modules/accounts/account.service.js';
+import { PrismaChatStateRepository } from './modules/conversation/chat-state.repository.js';
+import { PrismaPendingRepository } from './modules/pending/pending.repository.js';
 import { PrismaTransactionRepository } from './modules/transactions/transaction.repository.js';
 import { TransactionService } from './modules/transactions/transaction.service.js';
 
@@ -50,6 +54,7 @@ async function main(): Promise<void> {
     process.exit(exitCode);
   };
 
+  const transactionRepository = new PrismaTransactionRepository(prisma);
   const assistant = new Assistant({
     parser: new GeminiTransactionParser({
       models: new GoogleGenAI({ apiKey: env.GEMINI_API_KEY }).models,
@@ -58,7 +63,10 @@ async function main(): Promise<void> {
       timeZone: env.APP_TIMEZONE,
       logger: app.log,
     }),
-    transactions: new TransactionService(new PrismaTransactionRepository(prisma)),
+    transactions: new TransactionService(transactionRepository),
+    accounts: new AccountService(new PrismaAccountRepository(prisma), transactionRepository),
+    pending: new PrismaPendingRepository(prisma),
+    chatState: new PrismaChatStateRepository(prisma),
     logger: app.log,
   });
 

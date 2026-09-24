@@ -1,5 +1,10 @@
 import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
-import type { MessageChannel, MessageHandler, OutgoingMessage } from '../message-channel.js';
+import type {
+  ActionReply,
+  MessageChannel,
+  MessageHandler,
+  OutgoingMessage,
+} from '../message-channel.js';
 import type { Logger } from '../../lib/logger.js';
 import { downloadTelegramFile } from './download-file.js';
 import { onlyAllowedUser } from './only-allowed-user.js';
@@ -42,6 +47,14 @@ export class TelegramChannel implements MessageChannel {
     });
     this.bot.command('desfazer', async (ctx) => {
       await sendReply(ctx, await handler.handleUndoLast());
+    });
+    this.bot.command('cartoes', async (ctx) => {
+      await sendReply(ctx, await handler.handleAccounts());
+    });
+    this.bot.command('pendentes', async (ctx) => {
+      for (const message of await handler.handlePending()) {
+        await sendReply(ctx, message);
+      }
     });
 
     this.bot.on('message:text', async (ctx) => {
@@ -92,15 +105,7 @@ export class TelegramChannel implements MessageChannel {
       // Responde logo ao Telegram para o botão parar de mostrar "carregando".
       await ctx.answerCallbackQuery();
       const reply = await handler.handleAction(ctx.callbackQuery.data);
-
-      // Edita a mensagem original: acrescenta o resultado e remove o botão,
-      // para o mesmo lote não ser "desfeito" duas vezes por engano.
-      const original = ctx.callbackQuery.message?.text;
-      if (original) {
-        await ctx.editMessageText(`${original}\n\n${reply.text}`);
-      } else {
-        await sendReply(ctx, reply);
-      }
+      await applyActionReply(ctx, reply);
     });
 
     // Erros dentro dos handlers: loga e avisa o usuário, sem derrubar o bot.
@@ -131,6 +136,8 @@ export class TelegramChannel implements MessageChannel {
     await this.bot.api.setMyCommands([
       { command: 'ultimos', description: 'Seus 10 últimos lançamentos' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
+      { command: 'cartoes', description: 'Seus cartões, contas e saldos' },
+      { command: 'pendentes', description: 'Lançamentos esperando resposta' },
       { command: 'start', description: 'Boas-vindas e exemplos' },
     ]);
 
@@ -155,12 +162,39 @@ export class TelegramChannel implements MessageChannel {
   }
 }
 
-/** Envia a resposta; ações viram botões inline, cada um devolvendo seu `id` no clique. */
-function sendReply(ctx: Context, message: OutgoingMessage) {
-  const actions = message.actions ?? [];
-  if (actions.length === 0) return ctx.reply(message.text);
+function keyboardFor(message: OutgoingMessage): InlineKeyboard | undefined {
+  const rows = (message.actions ?? []).filter((row) => row.length > 0);
+  if (rows.length === 0) return undefined;
+  return InlineKeyboard.from(rows.map((row) => row.map((a) => InlineKeyboard.text(a.label, a.id))));
+}
 
-  const keyboard = new InlineKeyboard();
-  for (const action of actions) keyboard.text(action.label, action.id);
-  return ctx.reply(message.text, { reply_markup: keyboard });
+/** Envia a resposta; cada linha de ações vira uma linha de botões inline. */
+function sendReply(ctx: Context, message: OutgoingMessage) {
+  const keyboard = keyboardFor(message);
+  return ctx.reply(message.text, keyboard ? { reply_markup: keyboard } : undefined);
+}
+
+/**
+ * Aplica a resposta de um toque na mensagem que tinha o botão.
+ * - replace: troca texto e botões (perguntas de vários passos, menus);
+ * - append: acrescenta o texto e remove os botões, para o mesmo botão não ser tocado de
+ *   novo por engano (ex.: Desfazer).
+ */
+async function applyActionReply(ctx: Context, reply: ActionReply): Promise<void> {
+  const original = ctx.callbackQuery?.message?.text;
+  if (reply.mode === 'append' && !original) {
+    await sendReply(ctx, reply);
+    return;
+  }
+  const text = reply.mode === 'append' ? `${original ?? ''}\n\n${reply.text}` : reply.text;
+  const keyboard = keyboardFor(reply);
+  try {
+    await ctx.editMessageText(text, keyboard ? { reply_markup: keyboard } : undefined);
+  } catch (error) {
+    // Tocar duas vezes no mesmo botão gera uma edição idêntica, que o Telegram recusa.
+    if (error instanceof GrammyError && error.description.includes('message is not modified')) {
+      return;
+    }
+    throw error;
+  }
 }

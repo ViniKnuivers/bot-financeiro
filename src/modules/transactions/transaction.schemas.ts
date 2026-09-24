@@ -22,6 +22,8 @@ export const INCOME_CATEGORIES = [
   'ESTAGIO',
   'FREELA',
   'OUTROS_RECEITA',
+  'VALE_REFEICAO',
+  'VALE_ALIMENTACAO',
 ] as const satisfies readonly Category[];
 
 /** Limite da coluna INTEGER do Postgres. */
@@ -42,6 +44,19 @@ export const transactionDraftSchema = z.object({
   description: z.string().min(1).max(120).describe('Descrição curta, sem valor nem data.'),
   category: z.enum(Category),
   paymentMethod: z.enum(PaymentMethod).nullable(),
+  // O JSON Schema enviado à IA troca este campo por um enum com os nomes dos cartões
+  // cadastrados (ver parse-result.schema.ts). Aqui aceita qualquer nome: o resolver de
+  // pagamento ignora nomes que não existem.
+  account: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe('Nome exato do cartão/conta mencionado, da lista do usuário; null se não citado.'),
+  installments: z
+    .int()
+    .min(1)
+    .max(48)
+    .describe('Número de parcelas ("em 3x" = 3). 1 para compra à vista.'),
   occurredAt: z.iso.date().describe('Data da transação no formato YYYY-MM-DD.'),
 });
 

@@ -1,3 +1,4 @@
+import type { AccountKind } from '../generated/prisma/enums.js';
 import type { ParseResult } from './parse-result.schema.js';
 
 export type { ParseResult } from './parse-result.schema.js';
@@ -8,6 +9,13 @@ export interface ParseInput {
   mimeType?: string;
   /** Momento de referência para resolver datas relativas ("ontem", "sexta"). */
   now: Date;
+  /** Cartões e contas do usuário, para a IA reconhecer "no itaú", "no VA". */
+  accounts?: readonly AccountHint[];
+}
+
+export interface AccountHint {
+  name: string;
+  kind: AccountKind;
 }
 
 /** Transforma linguagem natural em transações estruturadas. Trocável (Gemini, outro LLM, mock). */

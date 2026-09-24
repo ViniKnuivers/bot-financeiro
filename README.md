@@ -30,6 +30,15 @@ com as suas próprias chaves e o seu próprio banco. Nada é compartilhado com o
 - **Datas relativas.** "ontem", "anteontem", "sexta", "dia 5", no fuso America/Sao_Paulo.
 - **Pergunta quando falta algo.** "gastei no mercado" → "Quanto você gastou no mercado?"
   Nada é salvo até a informação estar completa.
+- **Pergunta a forma de pagamento.** "comprei cadeira 500" → botões [Pix] [Débito]
+  [Crédito] [VR] [VA]…; no crédito, pergunta **em qual cartão**. Só salva depois da
+  resposta, e só pergunta o que não dá para deduzir (Pix com uma única conta bancária, por
+  exemplo, já vai direto para ela).
+- **Cartões com nome.** Cadastre suas contas e cartões em `/cartoes` (ex.: Itaú com conta e
+  crédito, Santander só crédito) e cite pelo nome: "tênis 300 em 3x no santander".
+- **VR e VA com saldo.** "recebi 600 de VA" e, a cada compra no VA, o bot mostra quanto
+  sobrou. O saldo acumula de um mês para o outro.
+- **Compras parceladas.** "300 em 3x" guarda o total e o número de parcelas.
 - **Desfazer.** Botão em cada registro, e o comando `/desfazer` para o último lançamento.
 - **Auditoria.** Cada transação guarda o texto original (ou a transcrição do áudio) e a origem.
 - **Resiliente à camada gratuita.** Se o modelo principal do Gemini estiver sobrecarregado,
@@ -37,17 +46,19 @@ com as suas próprias chaves e o seu próprio banco. Nada é compartilhado com o
 
 ### Comandos
 
-| Comando     | O que faz                            |
-| ----------- | ------------------------------------ |
-| `/start`    | Boas-vindas e exemplos               |
-| `/ultimos`  | Seus 10 últimos lançamentos          |
-| `/desfazer` | Apaga o último lançamento registrado |
+| Comando      | O que faz                                                 |
+| ------------ | --------------------------------------------------------- |
+| `/start`     | Boas-vindas e exemplos                                    |
+| `/cartoes`   | Cartões e contas: cadastrar, remover, saldos de VR/VA     |
+| `/pendentes` | Lançamentos esperando você responder a forma de pagamento |
+| `/ultimos`   | Seus 10 últimos lançamentos                               |
+| `/desfazer`  | Apaga o último lançamento registrado                      |
 
 ### Categorias
 
 - **Despesas:** Alimentação, Mercado, Transporte, Moradia, Contas, Saúde, Educação, Lazer,
   Assinaturas, Compras, Outros.
-- **Receitas:** Salário, Estágio, Freela, Outras receitas.
+- **Receitas:** Salário, Estágio, Freela, Vale-refeição, Vale-alimentação, Outras receitas.
 
 ## Como rodar o seu
 
@@ -108,7 +119,9 @@ curl localhost:3000/health          # {"status":"ok","database":"up"}
 docker compose logs -f app          # deve aparecer "telegram: bot ouvindo"
 ```
 
-Abra o seu bot no Telegram, mande `/start` e depois algo como `almoço 32 no pix`.
+Abra o seu bot no Telegram e mande `/start`. Depois, cadastre seus cartões em `/cartoes`
+(opcional, mas é o que permite escolher o cartão e ver o saldo do VR/VA) e mande algo como
+`almoço 32 no pix`.
 
 ### Deixar rodando o tempo todo
 
@@ -203,10 +216,15 @@ src/
 ├── main.ts                 # composition root: monta e conecta as peças
 ├── config/env.ts           # variáveis de ambiente validadas com Zod
 ├── channels/               # MessageChannel + implementação do Telegram
-├── assistant/              # fluxo de conversa, independente de canal
+├── assistant/              # conversa, independente de canal: pagamento e menu de cartões
 ├── ai/                     # TransactionParser + implementação com Gemini
 ├── prompts/                # system prompt da IA
-├── modules/transactions/   # service, repository (Prisma), schemas e rótulos
+├── modules/
+│   ├── transactions/       # service, repository (Prisma), schemas e rótulos
+│   ├── accounts/           # cartões e contas, saldo de VR/VA
+│   ├── payments/           # resolver: o que perguntar sobre o pagamento
+│   ├── pending/            # lançamentos esperando resposta
+│   └── conversation/       # passo atual de conversas com vários passos
 ├── http/server.ts          # Fastify: /health
 ├── lib/                    # datas, dinheiro, logger, Prisma
 └── test/                   # apoio aos testes (repositório em memória)
@@ -229,6 +247,16 @@ src/
   ordem de registro dentro de um lote.
 - **Modelos reserva.** Na camada gratuita, um modelo específico às vezes responde 503 ou trava;
   o parser passa para o próximo da lista (`GEMINI_FALLBACK_MODELS`).
+- **Perguntar sem perder nada.** Um lançamento sem forma de pagamento vira uma _pendência_
+  no banco (não em memória): sobrevive a reinícios do bot e é listado em `/pendentes`. A
+  decisão do que perguntar é uma função pura (`payment-resolver.ts`), fácil de testar.
+- **Ids inteiros para cartões e pendências.** Eles vão no `callback_data` dos botões,
+  junto com a ação (ex.: `pa:12:3`), e o limite é de 64 bytes.
+- **Saldo nunca é guardado pronto.** Saldo do VA = saldo inicial + recargas − gastos,
+  calculado na hora. Assim, desfazer um lançamento corrige o saldo automaticamente.
+- **Passos de conversa expiram.** Depois de "Qual o nome do cartão?", o próximo texto é o
+  nome. Se você esquecer de responder, em 15 minutos o bot volta a tratar textos como
+  lançamentos.
 - **Filtro de usuário e de chat privado.** Mensagens de outras pessoas são ignoradas sem
   resposta. O bot também ignora grupos, para seus gastos não aparecerem para outros.
 

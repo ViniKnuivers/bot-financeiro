@@ -1,4 +1,5 @@
 import type {
+  AccountTotals,
   NewTransaction,
   Transaction,
   TransactionRepository,
@@ -37,6 +38,14 @@ export class InMemoryTransactionRepository implements TransactionRepository {
     const latest = this.rows.at(-1) ?? null;
     if (latest) this.remove((row) => row.id === latest.id);
     return Promise.resolve(latest);
+  }
+
+  sumByAccount(accountId: number): Promise<AccountTotals> {
+    const sum = (type: Transaction['type']) =>
+      this.rows
+        .filter((row) => row.accountId === accountId && row.type === type)
+        .reduce((total, row) => total + row.amountCents, 0);
+    return Promise.resolve({ incomeCents: sum('INCOME'), expenseCents: sum('EXPENSE') });
   }
 
   private remove(predicate: (row: Transaction) => boolean): void {

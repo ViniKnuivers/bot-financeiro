@@ -17,6 +17,13 @@ export interface NewTransaction {
   occurredAt: Date;
   rawInput: string;
   source: InputSource;
+  accountId: number | null;
+  installments: number;
+}
+
+export interface AccountTotals {
+  incomeCents: number;
+  expenseCents: number;
 }
 
 /** Acesso a dados isolado atrás de uma interface: o service é testável sem banco. */
@@ -28,6 +35,8 @@ export interface TransactionRepository {
   findLatest(limit: number): Promise<Transaction[]>;
   /** Apaga a transação registrada mais recentemente e a retorna (null se não houver). */
   deleteLatest(): Promise<Transaction | null>;
+  /** Totais de entradas e saídas de uma conta (base do saldo de VR/VA). */
+  sumByAccount(accountId: number): Promise<AccountTotals>;
 }
 
 /**
@@ -65,5 +74,16 @@ export class PrismaTransactionRepository implements TransactionRepository {
     // por exemplo com um toque simultâneo no botão "Desfazer".
     const { count } = await this.prisma.transaction.deleteMany({ where: { id: latest.id } });
     return count > 0 ? latest : null;
+  }
+
+  async sumByAccount(accountId: number): Promise<AccountTotals> {
+    const groups = await this.prisma.transaction.groupBy({
+      by: ['type'],
+      where: { accountId },
+      _sum: { amountCents: true },
+    });
+    const total = (type: string) =>
+      groups.find((group) => group.type === type)?._sum.amountCents ?? 0;
+    return { incomeCents: total('INCOME'), expenseCents: total('EXPENSE') };
   }
 }
