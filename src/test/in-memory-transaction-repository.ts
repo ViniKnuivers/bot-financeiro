@@ -1,4 +1,5 @@
 import type {
+  TransactionPatch,
   AccountTotals,
   NewTransaction,
   Transaction,
@@ -71,6 +72,23 @@ export class InMemoryTransactionRepository implements TransactionRepository {
         (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime() || b.id.localeCompare(a.id),
       ),
     );
+  }
+
+  update(id: string, fields: TransactionPatch): Promise<void> {
+    const row = this.rows.find((r) => r.id === id);
+    if (row) Object.assign(row, fields);
+    return Promise.resolve();
+  }
+
+  deleteById(id: string): Promise<number> {
+    const before = this.rows.length;
+    this.remove((row) => row.id === id);
+    return Promise.resolve(before - this.rows.length);
+  }
+
+  restore(transaction: Transaction): Promise<void> {
+    this.rows.push({ ...transaction });
+    return Promise.resolve();
   }
 
   listForReports() {

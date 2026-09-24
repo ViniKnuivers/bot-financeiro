@@ -29,7 +29,11 @@ export default defineConfig(
   // pelo próprio Vitest; sem isto, toda asserção parcial vira erro de lint.
   {
     files: ['**/*.test.ts'],
-    rules: { '@typescript-eslint/no-unsafe-assignment': 'off' },
+    rules: {
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      // Editar linhas de planilhas simuladas (rows[0]![5] = 35) fica mais legível assim.
+      '@typescript-eslint/no-non-null-assertion': 'off',
+    },
   },
 
   // Arquivos JS (como este) não estão no tsconfig: desliga as regras que exigem tipos.

@@ -44,8 +44,29 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
   replaceValues(_clearRanges: string[], data: RangeValues[]): Promise<void> {
     if (this.failWith) return Promise.reject(this.failWith);
     this.written = structuredClone(data);
+    this.edited = null;
     return Promise.resolve();
   }
+
+  /**
+   * Simula a leitura: devolve as linhas de dados da aba Lançamentos (sem o cabeçalho),
+   * que os testes podem editar em `transactionRows` antes da próxima sincronização.
+   */
+  readValues(): Promise<unknown[][]> {
+    if (this.failWith) return Promise.reject(this.failWith);
+    return Promise.resolve(structuredClone(this.transactionRows));
+  }
+
+  /** As linhas de lançamentos como estão "na planilha" (edite para simular o usuário). */
+  get transactionRows(): (string | number | null)[][] {
+    return (this.edited ??= this.range("'Lançamentos'!A1:K").slice(1));
+  }
+
+  set transactionRows(rows: (string | number | null)[][]) {
+    this.edited = rows;
+  }
+
+  private edited: (string | number | null)[][] | null = null;
 
   /** Valores escritos numa faixa (ex.: "'Resumo'!A1:B20"). */
   range(range: string): (string | number | null)[][] {

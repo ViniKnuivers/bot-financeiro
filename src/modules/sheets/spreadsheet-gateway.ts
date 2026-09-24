@@ -25,6 +25,8 @@ export interface SpreadsheetGateway {
   batchUpdate(requests: SheetRequest[]): Promise<void>;
   /** Limpa as faixas e escreve os valores novos (números e datas crus, sem interpretar). */
   replaceValues(clearRanges: string[], data: RangeValues[]): Promise<void>;
+  /** Lê valores crus: números como número e datas como número de série. */
+  readValues(range: string): Promise<unknown[][]>;
 }
 
 export type SheetsErrorReason = 'permission' | 'not_found' | 'quota' | 'unavailable' | 'unexpected';
@@ -114,6 +116,20 @@ export class GoogleSheetsGateway implements SpreadsheetGateway {
         spreadsheetId: this.spreadsheetId,
         requestBody: { requests },
       });
+    } catch (error) {
+      throw toSheetsError(error);
+    }
+  }
+
+  async readValues(range: string): Promise<unknown[][]> {
+    try {
+      const { data } = await this.api.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range,
+        valueRenderOption: 'UNFORMATTED_VALUE',
+        dateTimeRenderOption: 'SERIAL_NUMBER',
+      });
+      return (data.values ?? []) as unknown[][];
     } catch (error) {
       throw toSheetsError(error);
     }

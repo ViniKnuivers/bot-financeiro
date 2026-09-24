@@ -62,6 +62,7 @@ enum InputSource {
   TEXT
   AUDIO
   RECURRING // lançado automaticamente por um gasto fixo
+  SHEET // criado numa linha nova da planilha
 }
 
 model Transaction {
@@ -221,4 +222,22 @@ model JobState {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("job_state")
+}
+
+/// Como cada linha estava na última sincronização com a planilha. Comparando com a
+/// planilha e com o banco, dá para saber quem mudou o quê (edição pela planilha).
+model SheetRowSnapshot {
+  transactionId String @id @db.Uuid
+  hash          String
+
+  @@map("sheet_row_snapshots")
+}
+
+/// Lançamentos apagados pela planilha, guardados para o botão "Desfazer".
+model TrashEntry {
+  id        Int      @id @default(autoincrement())
+  payload   Json
+  deletedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@map("trash_entries")
 }

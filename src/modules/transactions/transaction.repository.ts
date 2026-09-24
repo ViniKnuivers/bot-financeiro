@@ -43,7 +43,25 @@ export interface TransactionRepository {
   listForReports(): Promise<ReportTransaction[]>;
   /** Todos os lançamentos completos, do mais recente para o mais antigo (planilha). */
   listAll(): Promise<Transaction[]>;
+  /** Edição feita na planilha. */
+  update(id: string, fields: TransactionPatch): Promise<void>;
+  /** Apaga um lançamento; retorna quantos apagou (0 se já não existia). */
+  deleteById(id: string): Promise<number>;
+  /** Devolve um lançamento apagado, com o mesmo id (botão Desfazer). */
+  restore(transaction: Transaction): Promise<void>;
 }
+
+export type TransactionPatch = Pick<
+  NewTransaction,
+  | 'type'
+  | 'amountCents'
+  | 'description'
+  | 'category'
+  | 'paymentMethod'
+  | 'occurredAt'
+  | 'accountId'
+  | 'installments'
+>;
 
 /**
  * Ordem de registro. As transações de um mesmo lote têm o mesmo createdAt (um único
@@ -124,5 +142,18 @@ export class PrismaTransactionRepository implements TransactionRepository {
     return this.prisma.transaction.findMany({
       orderBy: [{ occurredAt: 'desc' }, ...LATEST_FIRST],
     });
+  }
+
+  async update(id: string, fields: TransactionPatch): Promise<void> {
+    await this.prisma.transaction.update({ where: { id }, data: fields });
+  }
+
+  async deleteById(id: string): Promise<number> {
+    const { count } = await this.prisma.transaction.deleteMany({ where: { id } });
+    return count;
+  }
+
+  async restore(transaction: Transaction): Promise<void> {
+    await this.prisma.transaction.create({ data: transaction });
   }
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { OutgoingMessage } from '../../channels/message-channel.js';
 import { AccountService } from '../accounts/account.service.js';
 import { BudgetService } from '../budgets/budget.service.js';
 import { ReportService } from '../reports/report.service.js';
@@ -7,6 +8,8 @@ import {
   InMemoryAccountRepository,
   InMemoryBudgetRepository,
   InMemoryInvoicePaymentRepository,
+  InMemorySheetSnapshotRepository,
+  InMemoryTrashRepository,
 } from '../../test/in-memory-repositories.js';
 import { googleError, InMemorySpreadsheet } from '../../test/in-memory-spreadsheet.js';
 import { InMemoryTransactionRepository } from '../../test/in-memory-transaction-repository.js';
@@ -24,7 +27,9 @@ function setup() {
   );
   const budgets = new InMemoryBudgetRepository();
   const gateway = new InMemorySpreadsheet();
-  const notify = vi.fn(() => Promise.resolve());
+  const snapshots = new InMemorySheetSnapshotRepository();
+  const trash = new InMemoryTrashRepository();
+  const notify = vi.fn<(message: OutgoingMessage) => Promise<void>>(() => Promise.resolve());
   const jobs = new Map<string, string>();
   const sync = new SheetSyncService({
     gateway,
@@ -33,6 +38,9 @@ function setup() {
     accounts,
     reports: new ReportService(transactions, accounts),
     budgets: new BudgetService(budgets),
+    transactionService: new TransactionService(transactions),
+    snapshots,
+    trash,
     jobState: {
       get: (key) => Promise.resolve(jobs.get(key) ?? null),
       set: (key, value) => {
@@ -64,7 +72,7 @@ function setup() {
       rawInput: 'almoço 32',
       source: 'TEXT',
     });
-  return { sync, gateway, notify, accounts, budgets, register };
+  return { sync, gateway, notify, accounts, budgets, register, transactions, trash };
 }
 
 describe('SheetSyncService', () => {
@@ -174,6 +182,126 @@ describe('SheetSyncService', () => {
     expect(sync.url('charts')).toBe(
       `https://docs.google.com/spreadsheets/d/planilha-teste/edit#gid=${chartsTab?.sheetId}`,
     );
+  });
+});
+
+describe('edição pela planilha', () => {
+  /** Sincroniza, "edita" a planilha e sincroniza de novo (como o bot faz a cada minuto). */
+  async function editAndSync(
+    ctx: ReturnType<typeof setup>,
+    edit: (rows: (string | number | null)[][]) => void,
+  ) {
+    await ctx.sync.syncNow();
+    const rows = ctx.gateway.transactionRows;
+    edit(rows);
+    ctx.gateway.transactionRows = rows;
+    await ctx.sync.syncNow();
+  }
+
+  it('valor corrigido na planilha é aplicado no bot e avisado', async () => {
+    const ctx = setup();
+    await ctx.register();
+
+    await editAndSync(ctx, (rows) => {
+      rows[0]![5] = 35;
+    });
+
+    expect(ctx.transactions.rows[0]?.amountCents).toBe(3500);
+    expect(ctx.notify).toHaveBeenCalledWith({
+      text: expect.stringMatching(/Atualizei pela planilha:\nAlmoço: R\$\s32,00 → R\$\s35,00/),
+    });
+    // Na rodada seguinte, sem novas edições, nada é reaplicado nem avisado de novo.
+    ctx.notify.mockClear();
+    await ctx.sync.syncNow();
+    expect(ctx.notify).not.toHaveBeenCalled();
+  });
+
+  it('linha nova digitada vira lançamento (origem Planilha) e ganha ID', async () => {
+    const ctx = setup();
+
+    await editAndSync(ctx, (rows) => {
+      rows.push([
+        '',
+        '20/09/2026',
+        'Aporte',
+        'Tesouro Selic',
+        'Investimento',
+        500,
+        '',
+        '',
+        '',
+        '',
+        '',
+      ]);
+    });
+
+    expect(ctx.transactions.rows[0]).toMatchObject({
+      type: 'INVESTMENT',
+      amountCents: 50000,
+      source: 'SHEET',
+    });
+    expect(ctx.gateway.transactionRows[0]?.[0]).toBe(ctx.transactions.rows[0]?.id);
+    expect(ctx.gateway.transactionRows[0]?.[9]).toBe('Planilha');
+  });
+
+  it('linha nova com erro fica na planilha com o motivo, e o aviso sai uma vez só', async () => {
+    const ctx = setup();
+
+    await editAndSync(ctx, (rows) => {
+      rows.push(['', '20/09/2026', 'Despesa', 'Presente', 'Comida', 80, '', '', '', '', '']);
+    });
+    await ctx.sync.syncNow({ force: true });
+
+    expect(ctx.transactions.rows).toHaveLength(0);
+    expect(ctx.gateway.transactionRows.at(-1)?.[10]).toBe('⚠️ Categoria "Comida" não existe.');
+    const warnings = ctx.notify.mock.calls.filter(([m]) => m.text.includes('Comida'));
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('linha apagada apaga no bot, com Desfazer que restaura', async () => {
+    const ctx = setup();
+    await ctx.register();
+
+    await editAndSync(ctx, (rows) => {
+      rows.splice(0, 1);
+    });
+    expect(ctx.transactions.rows).toHaveLength(0);
+
+    const deletion = ctx.notify.mock.calls.find(([m]) => m.text.includes('Apaguei'))?.[0];
+    const undo = deletion?.actions?.[0]?.[0]?.id ?? '';
+    await ctx.sync.handleAction(undo);
+
+    expect(ctx.transactions.rows).toHaveLength(1);
+    expect(ctx.transactions.rows[0]?.description).toBe('Almoço');
+  });
+
+  it('aba esvaziada por engano: não apaga nada e pergunta', async () => {
+    const ctx = setup();
+    for (let i = 0; i < 6; i++) await ctx.register();
+
+    await editAndSync(ctx, (rows) => {
+      rows.length = 0;
+    });
+
+    expect(ctx.transactions.rows).toHaveLength(6);
+    expect(ctx.gateway.transactionRows).toHaveLength(6); // devolvidas à planilha
+    expect(ctx.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('6 linhas sumiram') }),
+    );
+
+    await ctx.sync.handleAction('sd:yes');
+    expect(ctx.transactions.rows).toHaveLength(0);
+    expect(ctx.trash.items.size).toBe(6);
+  });
+
+  it('sem mudanças em nenhum lado, a leitura periódica não reescreve a planilha', async () => {
+    const ctx = setup();
+    await ctx.sync.syncNow();
+    const writes = vi.spyOn(ctx.gateway, 'replaceValues');
+
+    await ctx.sync.syncNow();
+
+    expect(writes).not.toHaveBeenCalled();
   });
 });
 

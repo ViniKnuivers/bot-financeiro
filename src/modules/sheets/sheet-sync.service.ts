@@ -8,6 +8,12 @@ import type { BudgetService } from '../budgets/budget.service.js';
 import { monthOf } from '../reports/monthly-report.js';
 import type { ReportService } from '../reports/report.service.js';
 import type { TransactionRepository } from '../transactions/transaction.repository.js';
+import type { TransactionService } from '../transactions/transaction.service.js';
+import type { ActionReply } from '../../channels/message-channel.js';
+import { diffSheet } from './sheet-diff.js';
+import { SheetImporter, type ImportResult } from './sheet-import.js';
+import { fieldsOf, hashFields, readRows } from './sheet-row.js';
+import type { SheetSnapshotRepository, TrashRepository } from './sheet-sync.repositories.js';
 import {
   buildSheetContent,
   cardsWithInvoices,
@@ -29,6 +35,8 @@ import {
 import { toSheetsError, type SheetsError, type SpreadsheetGateway } from './spreadsheet-gateway.js';
 
 const STRUCTURE_KEY = 'sheets.structure';
+/** Mesmo sem mudanças, reescreve a planilha de tempos em tempos (saldos, "mês atual"). */
+const REFRESH_EVERY_MS = 10 * 60 * 1000;
 /** Falhas passageiras (rede, Google instável) só viram aviso depois de algumas seguidas. */
 const TRANSIENT_FAILURES_BEFORE_ALERT = 3;
 
@@ -38,8 +46,11 @@ export interface SheetSyncDeps {
   serviceAccountEmail: string | null;
   transactions: Pick<
     TransactionRepository,
-    'listAll' | 'listForReports' | 'listPurchasesByAccount'
+    'listAll' | 'listForReports' | 'listPurchasesByAccount' | 'update' | 'deleteById' | 'restore'
   >;
+  transactionService: Pick<TransactionService, 'register'>;
+  snapshots: SheetSnapshotRepository;
+  trash: TrashRepository;
   accounts: AccountService;
   reports: ReportService;
   budgets: BudgetService;
@@ -71,11 +82,24 @@ export class SheetSyncService {
   private lastError: SheetsError | null = null;
   private consecutiveFailures = 0;
   private alerted = false;
+  /** Houve mudança no bot desde a última escrita na planilha. */
+  private dirty = true;
+  private lastPushAt = 0;
+  private lastPushMonth = '';
+  private readonly importer: SheetImporter;
 
-  constructor(private readonly deps: SheetSyncDeps) {}
+  constructor(private readonly deps: SheetSyncDeps) {
+    this.importer = new SheetImporter({
+      transactions: deps.transactions,
+      service: deps.transactionService,
+      trash: deps.trash,
+      jobState: deps.jobState,
+    });
+  }
 
   /** Pede uma sincronização daqui a alguns segundos, juntando mudanças seguidas numa só. */
   requestSync(): void {
+    this.dirty = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = null;
@@ -83,8 +107,13 @@ export class SheetSyncService {
     }, this.deps.debounceMs ?? 3000);
   }
 
-  /** Sincroniza agora. Se já houver uma rodando, roda de novo logo depois dela. */
-  async syncNow(): Promise<void> {
+  /**
+   * Sincroniza agora: lê a planilha (aplica o que você editou lá) e, se algo mudou,
+   * reescreve. `force` reescreve mesmo sem mudanças. Se já houver uma rodando, roda de
+   * novo logo depois dela.
+   */
+  async syncNow(options: { force?: boolean } = {}): Promise<void> {
+    if (options.force) this.dirty = true;
     if (this.running) {
       this.again = true;
       return this.running;
@@ -132,14 +161,36 @@ export class SheetSyncService {
     }
   }
 
+  /** Botões dos avisos da planilha ("Desfazer" de uma exclusão, exclusão em massa). */
+  async handleAction(actionId: string): Promise<ActionReply | null> {
+    const reply = await this.importer.handleAction(actionId);
+    if (reply) this.requestSync();
+    return reply;
+  }
+
   private async run(): Promise<void> {
     try {
-      await this.ensureStructure();
-      const content = buildSheetContent(await this.collect());
-      await this.deps.gateway.replaceValues(content.clearRanges, content.data);
-      if (this.ids) await this.deps.gateway.batchUpdate(autoResizeRequests(this.ids));
+      const structureChanged = await this.ensureStructure();
+      const imported = await this.pull();
+      for (const message of imported.messages) await this.deps.notify(message);
 
-      this.lastSyncAt = this.deps.now?.() ?? new Date();
+      const now = this.deps.now?.() ?? new Date();
+      const month = this.deps.today().slice(0, 7);
+      const mustPush =
+        structureChanged ||
+        this.dirty ||
+        imported.changed ||
+        imported.pendingRows.length > 0 ||
+        month !== this.lastPushMonth ||
+        now.getTime() - this.lastPushAt > REFRESH_EVERY_MS;
+      if (mustPush) {
+        this.dirty = false;
+        await this.push(imported);
+        this.lastPushAt = now.getTime();
+        this.lastPushMonth = month;
+      }
+
+      this.lastSyncAt = now;
       this.lastError = null;
       this.consecutiveFailures = 0;
       if (this.alerted) {
@@ -168,11 +219,42 @@ export class SheetSyncService {
     }
   }
 
+  /** Lê a aba Lançamentos e aplica no banco o que foi mudado lá desde a última vez. */
+  private async pull(): Promise<ImportResult> {
+    const [values, transactions, accounts, snapshots] = await Promise.all([
+      this.deps.gateway.readValues("'Lançamentos'!A2:K"),
+      this.deps.transactions.listAll(),
+      this.deps.accounts.listAll(),
+      this.deps.snapshots.getAll(),
+    ]);
+    const changes = diffSheet({ rows: readRows(values), transactions, snapshots, accounts });
+    return this.importer.apply(changes);
+  }
+
+  /**
+   * Reescreve a planilha a partir do banco e guarda como cada linha ficou (a base para
+   * detectar a próxima edição sua).
+   */
+  private async push(imported: ImportResult): Promise<void> {
+    const data = await this.collect();
+    const content = buildSheetContent({
+      ...data,
+      statuses: imported.statuses,
+      pendingRows: imported.pendingRows,
+    });
+    await this.deps.gateway.replaceValues(content.clearRanges, content.data);
+    if (this.ids) await this.deps.gateway.batchUpdate(autoResizeRequests(this.ids));
+    await this.deps.snapshots.replaceAll(
+      new Map(data.transactions.map((t) => [t.id, hashFields(fieldsOf(t))])),
+    );
+  }
+
   /**
    * Cria as abas que faltam e aplica formatos, listas e proteções. Os gráficos só são
    * recriados quando a planilha é nova ou muda o número de cartões com fatura.
+   * Retorna true quando a estrutura mudou.
    */
-  private async ensureStructure(): Promise<void> {
+  private async ensureStructure(): Promise<boolean> {
     const { gateway, jobState } = this.deps;
     let tabs = await gateway.listTabs();
     const created = missingTabs(tabs);
@@ -208,6 +290,8 @@ export class SheetSyncService {
     await gateway.batchUpdate(requests);
     this.formatted = true;
     if (rebuildCharts) await jobState.set(STRUCTURE_KEY, signature);
+    // Estrutura nova (ex.: um cartão a mais) exige reescrever os dados para os gráficos.
+    return rebuildCharts;
   }
 
   /** Junta tudo que as abas mostram, a partir dos mesmos relatórios do /resumo. */

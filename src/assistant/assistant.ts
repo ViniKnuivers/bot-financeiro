@@ -13,7 +13,7 @@ import type {
   OutgoingMessage,
 } from '../channels/message-channel.js';
 import type { InputSource } from '../generated/prisma/enums.js';
-import { toDateOnlyString } from '../lib/dates.js';
+import { formatMonthLong, toDateOnlyString } from '../lib/dates.js';
 import type { Logger } from '../lib/logger.js';
 import { addMonths } from '../modules/accounts/credit-invoice.js';
 import type { AccountService } from '../modules/accounts/account.service.js';
@@ -62,7 +62,7 @@ export interface AssistantDeps {
 /** O que o assistente usa da sincronização com a planilha. */
 export type SpreadsheetLink = Pick<
   SheetSyncService,
-  'url' | 'status' | 'syncNow' | 'requestSync' | 'failureMessage'
+  'url' | 'status' | 'syncNow' | 'requestSync' | 'failureMessage' | 'handleAction'
 >;
 
 const SPREADSHEET_SYNC_ACTION = 'sh:sync';
@@ -210,7 +210,7 @@ export class Assistant implements MessageHandler {
 
   async handleAction(actionId: string): Promise<ActionReply> {
     if (actionId === SPREADSHEET_SYNC_ACTION) {
-      await this.deps.sheets?.syncNow();
+      await this.deps.sheets?.syncNow({ force: true });
       return { mode: 'replace', ...(await this.handleSpreadsheet()) };
     }
     return this.afterChange(await this.routeAction(actionId));
@@ -225,6 +225,7 @@ export class Assistant implements MessageHandler {
     }
 
     const reply =
+      (await this.deps.sheets?.handleAction(actionId)) ??
       (await this.payments.handleAction(actionId)) ??
       (await this.accountsFlow.handleAction(actionId)) ??
       (await this.budgetFlow.handleAction(actionId)) ??
@@ -331,6 +332,29 @@ export class Assistant implements MessageHandler {
     }).format(date);
   }
 
+  /**
+   * Aviso do dia 1: sincroniza a planilha por completo e manda o resumo do mês que fechou,
+   * com os links da planilha e dos gráficos.
+   */
+  async monthClosedMessage(month: string): Promise<OutgoingMessage> {
+    const { reports, budgets, sheets } = this.deps;
+    const summary = await reports.month(month);
+    const [balances, status] = await Promise.all([reports.balances(), budgets.status(summary)]);
+    const body = formatMonthSummary(summary, balances, status);
+    const title = capitalizeFirst(formatMonthLong(month));
+
+    if (!sheets) return { text: `🗓️ ${title} fechado!\n\n${body}` };
+
+    await sheets.syncNow({ force: true });
+    const { lastError } = sheets.status();
+    const header = lastError
+      ? `🗓️ ${title} fechado!\n${sheets.failureMessage(lastError)}`
+      : `🗓️ ${title} fechado! A planilha e os gráficos estão 100% atualizados.`;
+    return {
+      text: `${header}\n\n${body}\n\n📈 Gráficos: ${sheets.url('charts')}\n📄 Planilha: ${sheets.url()}`,
+    };
+  }
+
   /** Mensagens avisando dos gastos fixos que a tarefa automática acabou de lançar. */
   async announceRecurring(runs: readonly RecurringRun[]): Promise<OutgoingMessage[]> {
     if (runs.length === 0) return [];
@@ -362,4 +386,8 @@ export class Assistant implements MessageHandler {
     const others = (await this.payments.countPending()) - (justCreatedId === null ? 0 : 1);
     return { ...message, text: message.text + formatPendingFooter(others) };
   }
+}
+
+function capitalizeFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

@@ -9,6 +9,11 @@ import type {
   NewInvoicePayment,
 } from '../modules/accounts/invoice-payment.repository.js';
 import type { Category } from '../generated/prisma/enums.js';
+import type {
+  SheetSnapshotRepository,
+  TrashRepository,
+} from '../modules/sheets/sheet-sync.repositories.js';
+import type { Transaction } from '../modules/transactions/transaction.repository.js';
 import type { BudgetLimit, BudgetRepository } from '../modules/budgets/budget.repository.js';
 import type {
   NewRecurringEntry,
@@ -196,5 +201,34 @@ export class InMemoryRecurringRepository implements RecurringRepository {
     const index = this.rows.findIndex((r) => r.id === id);
     if (index >= 0) this.rows.splice(index, 1);
     return Promise.resolve();
+  }
+}
+
+export class InMemorySheetSnapshotRepository implements SheetSnapshotRepository {
+  entries = new Map<string, string>();
+
+  getAll(): Promise<Map<string, string>> {
+    return Promise.resolve(new Map(this.entries));
+  }
+
+  replaceAll(entries: ReadonlyMap<string, string>): Promise<void> {
+    this.entries = new Map(entries);
+    return Promise.resolve();
+  }
+}
+
+export class InMemoryTrashRepository implements TrashRepository {
+  readonly items = new Map<number, Transaction>();
+  private sequence = 0;
+
+  put(transaction: Transaction): Promise<number> {
+    this.items.set(++this.sequence, structuredClone(transaction));
+    return Promise.resolve(this.sequence);
+  }
+
+  take(id: number): Promise<Transaction | null> {
+    const item = this.items.get(id) ?? null;
+    this.items.delete(id);
+    return Promise.resolve(item);
   }
 }

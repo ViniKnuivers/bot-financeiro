@@ -280,13 +280,30 @@ Cartões e vales** e **Investimentos**. Mande `/planilha` no Telegram para ver o
 
 Como funciona:
 
-- A planilha é atualizada poucos segundos depois de cada lançamento, e também a cada 10
-  minutos (é o que vira o mês na planilha).
-- O banco do bot continua sendo a fonte da verdade: por enquanto, **alterações feitas à mão
-  nas abas do bot são sobrescritas**. Você pode criar abas próprias à vontade, que o bot
-  não mexe nelas.
+- A planilha é atualizada poucos segundos depois de cada lançamento.
+- **Dá para editar a aba Lançamentos**, e o bot confere a cada minuto:
+  - **corrigir** um valor, uma data, a categoria, a forma ou o cartão: o bot aplica e avisa
+    no Telegram ("✏️ Atualizei pela planilha: Almoço: R$ 32,00 → R$ 35,00");
+  - **adicionar** uma linha nova no fim (deixe a coluna ID vazia): serve para despesas,
+    receitas, aportes e resgates. Use as listas de seleção das colunas Tipo, Categoria,
+    Forma e Cartão/Conta;
+  - **apagar** uma linha apaga o lançamento no bot, com um botão **Desfazer** no Telegram.
+- Se uma edição tiver erro (ex.: uma categoria que não existe), o bot não aplica, escreve o
+  motivo na coluna **Status** e avisa uma vez. Linhas novas com erro ficam na planilha para
+  você corrigir.
+- **Proteção contra acidentes:** se mais de 5 linhas sumirem de uma vez (ex.: a aba foi
+  limpa sem querer), o bot não apaga nada, devolve as linhas e pergunta no Telegram.
+- As outras abas (Resumo, Categorias, Cartões e vales, Investimentos, Gráficos) são
+  calculadas pelo bot: editar nelas mostra um aviso, e a mudança é sobrescrita. Você pode
+  criar abas próprias à vontade, que o bot não mexe nelas.
+- Se editar na planilha e, no mesmo minuto, mudar o mesmo lançamento pelo Telegram, vale a
+  versão do bot (e ele avisa).
 - Se a sincronização falhar (planilha não compartilhada, sem internet), o bot avisa uma
   vez no Telegram com a causa e sincroniza sozinho quando voltar. Nada se perde.
+
+**Aviso do dia 1:** quando o mês vira, o bot manda o resumo do mês que fechou, com a
+planilha e os gráficos já atualizados e os links para abrir. Se o computador estiver
+desligado no dia 1, ele manda assim que ligar.
 
 ## Deixar ligado o tempo todo
 

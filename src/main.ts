@@ -5,6 +5,7 @@ import { Assistant } from './assistant/assistant.js';
 import { TelegramChannel } from './channels/telegram/telegram-channel.js';
 import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
+import { monthlyReportJob } from './jobs/monthly-report.job.js';
 import { recurringJob } from './jobs/recurring.job.js';
 import { sheetRefreshJob } from './jobs/sheet-refresh.job.js';
 import { Scheduler } from './jobs/scheduler.js';
@@ -22,6 +23,10 @@ import { PrismaRecurringRepository } from './modules/recurring/recurring.reposit
 import { RecurringService } from './modules/recurring/recurring.service.js';
 import { ReportService } from './modules/reports/report.service.js';
 import { createSheetSync } from './modules/sheets/create-sheet-sync.js';
+import {
+  PrismaSheetSnapshotRepository,
+  PrismaTrashRepository,
+} from './modules/sheets/sheet-sync.repositories.js';
 import { PrismaTransactionRepository } from './modules/transactions/transaction.repository.js';
 import { TransactionService } from './modules/transactions/transaction.service.js';
 
@@ -79,6 +84,7 @@ async function main(): Promise<void> {
   const today = () => toDateOnlyString(new Date(), env.APP_TIMEZONE);
   const reports = new ReportService(transactionRepository, accounts);
   const budgets = new BudgetService(new PrismaBudgetRepository(prisma));
+  const jobState = new PrismaJobStateRepository(prisma);
 
   // Planilha Google (opcional). As mensagens de falha vão para o chat, que é criado
   // mais abaixo: por isso o envio chama `channel` só na hora de avisar.
@@ -90,7 +96,10 @@ async function main(): Promise<void> {
       accounts,
       reports,
       budgets,
-      jobState: new PrismaJobStateRepository(prisma),
+      jobState,
+      transactionService: transactions,
+      snapshots: new PrismaSheetSnapshotRepository(prisma),
+      trash: new PrismaTrashRepository(prisma),
       notify: (message) => channel.notify(message),
       logger: app.log,
       today,
@@ -143,6 +152,12 @@ async function main(): Promise<void> {
         onChange: () => sheets?.requestSync(),
       }),
       ...(sheets ? [sheetRefreshJob(sheets)] : []),
+      monthlyReportJob({
+        jobState,
+        notifier: channel,
+        today,
+        monthClosedMessage: (month) => assistant.monthClosedMessage(month),
+      }),
     ],
     app.log,
   );

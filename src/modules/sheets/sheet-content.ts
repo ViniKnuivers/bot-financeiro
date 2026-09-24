@@ -50,6 +50,10 @@ export interface SheetData {
   investments: readonly InvestmentPosition[];
   /** Aportes − resgates anteriores ao primeiro mês da tabela (base do acumulado). */
   netInvestedBefore: number;
+  /** Mensagem para a coluna Status de um lançamento (ex.: edição recusada). */
+  statuses?: ReadonlyMap<string, string>;
+  /** Linhas novas digitadas à mão que ainda têm erro: ficam no fim, para você corrigir. */
+  pendingRows?: readonly Cell[][];
 }
 
 export interface SheetContent {
@@ -57,12 +61,13 @@ export interface SheetContent {
   data: RangeValues[];
 }
 
-type Cell = string | number | null;
+export type Cell = string | number | null;
 
 const SOURCE_LABELS: Record<InputSource, string> = {
   TEXT: 'Telegram (texto)',
   AUDIO: 'Telegram (áudio)',
   RECURRING: 'Gasto fixo',
+  SHEET: 'Planilha',
 };
 
 /** Centavos → reais, só para gravar na planilha (a conta em si é sempre em centavos). */
@@ -88,7 +93,12 @@ export function buildSheetContent(input: SheetData): SheetContent {
   };
 }
 
-function transactionsTab({ transactions, accounts }: SheetData): RangeValues[] {
+function transactionsTab({
+  transactions,
+  accounts,
+  statuses,
+  pendingRows = [],
+}: SheetData): RangeValues[] {
   const byId = new Map(accounts.map((account) => [account.id, account]));
   const rows: Cell[][] = transactions.map((t) => {
     const account = t.accountId === null ? undefined : byId.get(t.accountId);
@@ -103,10 +113,15 @@ function transactionsTab({ transactions, accounts }: SheetData): RangeValues[] {
       t.paymentMethod ? PAYMENT_METHOD_LABELS[t.paymentMethod] : '',
       account ? accountLabel(account) : '',
       SOURCE_LABELS[t.source],
-      '',
+      statuses?.get(t.id) ?? '',
     ];
   });
-  return [{ range: a1('transactions', 'A1:K'), values: [[...TRANSACTION_HEADERS], ...rows] }];
+  return [
+    {
+      range: a1('transactions', 'A1:K'),
+      values: [[...TRANSACTION_HEADERS], ...rows, ...pendingRows],
+    },
+  ];
 }
 
 function summaryTab(input: SheetData): RangeValues[] {
