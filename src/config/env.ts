@@ -16,10 +16,14 @@ const envSchema = z.object({
 
   GEMINI_API_KEY: z.string().min(1),
   GEMINI_MODEL: z.string().min(1).default('gemini-3.8-flash'),
-  // Lista separada por vírgula, usada quando o modelo principal está sobrecarregado.
+  // Lista separada por vírgula, tentada em ordem quando o modelo principal está
+  // sobrecarregado ou sem cota. Na camada gratuita cada modelo tem cota diária própria
+  // (~20 mensagens), então mais modelos = mais mensagens por dia.
   GEMINI_FALLBACK_MODELS: z
     .string()
-    .default('gemini-3.6-flash,gemini-3.5-flash-lite')
+    .default(
+      'gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite',
+    )
     .transform((value) =>
       value
         .split(',')

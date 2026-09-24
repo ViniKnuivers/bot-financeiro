@@ -26,7 +26,13 @@ export interface TransactionParser {
 }
 
 export type TransactionParserErrorReason =
-  'timeout' | 'rate_limit' | 'invalid_api_key' | 'unavailable' | 'invalid_response' | 'unexpected';
+  | 'timeout'
+  | 'rate_limit'
+  | 'daily_quota'
+  | 'invalid_api_key'
+  | 'unavailable'
+  | 'invalid_response'
+  | 'unexpected';
 
 /**
  * Erro com motivo tipado: quem chama decide a mensagem para o usuário

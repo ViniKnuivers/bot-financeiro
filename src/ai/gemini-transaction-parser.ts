@@ -16,7 +16,7 @@ export interface GeminiTransactionParserOptions {
   /** `new GoogleGenAI({ apiKey }).models`. Recebido pronto para poder ser mockado nos testes. */
   models: Pick<Models, 'generateContent'>;
   model: string;
-  /** Modelos tentados, em ordem, quando o anterior está indisponível (503 "high demand"). */
+  /** Modelos tentados, em ordem, quando o anterior está indisponível, travado ou sem cota. */
   fallbackModels?: string[];
   timeZone: string;
   logger: Logger;
@@ -36,8 +36,16 @@ interface GenerateRequest {
   timeoutMs: number;
 }
 
-/** Falhas específicas de um modelo, que valem tentar em outro. */
-const FALLBACK_REASONS = new Set<TransactionParserErrorReason>(['unavailable', 'timeout']);
+/**
+ * Falhas específicas de um modelo, que valem tentar em outro. Na camada gratuita a cota
+ * (por minuto e por dia) é separada por modelo, então esgotar um não esgota os outros.
+ */
+const FALLBACK_REASONS = new Set<TransactionParserErrorReason>([
+  'unavailable',
+  'timeout',
+  'rate_limit',
+  'daily_quota',
+]);
 
 export class GeminiTransactionParser implements TransactionParser {
   private readonly models: Pick<Models, 'generateContent'>;
@@ -187,9 +195,14 @@ function toParserError(error: unknown, signal: AbortSignal): TransactionParserEr
   }
   if (error instanceof ApiError) {
     if (error.status === 429) {
-      return new TransactionParserError('rate_limit', 'limite de requisições do Gemini', {
-        cause: error,
-      });
+      // A resposta diz qual cota acabou: "...PerDay..." é a diária, que só renova no dia
+      // seguinte; as outras (por minuto) voltam em segundos.
+      const daily = /PerDay/i.test(error.message);
+      return new TransactionParserError(
+        daily ? 'daily_quota' : 'rate_limit',
+        daily ? 'cota diária do Gemini esgotada' : 'limite de requisições do Gemini',
+        { cause: error },
+      );
     }
     // Chave inválida vem como 400 (API_KEY_INVALID); sem permissão, 401/403.
     if (

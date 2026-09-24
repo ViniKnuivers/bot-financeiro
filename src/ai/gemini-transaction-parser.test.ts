@@ -191,7 +191,6 @@ describe('GeminiTransactionParser', () => {
 
   describe('erros da API', () => {
     it.each([
-      [429, 'Resource exhausted', 'rate_limit'],
       [400, 'API key not valid. API_KEY_INVALID', 'invalid_api_key'],
       [403, 'Permission denied', 'invalid_api_key'],
       [400, 'Invalid JSON schema', 'unexpected'],
@@ -251,6 +250,28 @@ describe('GeminiTransactionParser', () => {
 
       expect(result.intent).toBe('register');
       expect(call(1).model).toBe('reserva');
+    });
+
+    it.each([
+      ['por minuto', 'Resource exhausted. Quota ...PerMinutePerProjectPerModel...', 'rate_limit'],
+      [
+        'diária',
+        'Quota exceeded. quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+        'daily_quota',
+      ],
+    ])('cota %s esgotada (429) passa para o próximo modelo', async (_kind, message, reason) => {
+      const { parser, generateContent, call } = setup({ fallbackModels: ['reserva'] });
+      generateContent
+        .mockRejectedValueOnce(new ApiError({ status: 429, message }))
+        .mockResolvedValueOnce(registerResponse());
+
+      await parser.parse({ text: 'almoço 32', now: NOW });
+      expect(call(1).model).toBe('reserva');
+
+      // Todos sem cota: o motivo informado é o da cota.
+      generateContent.mockRejectedValue(new ApiError({ status: 429, message }));
+      const error = await parseError(parser.parse({ text: 'x', now: NOW }));
+      expect(error.reason).toBe(reason);
     });
 
     it('desiste com "unavailable" se todos os modelos falharem', async () => {

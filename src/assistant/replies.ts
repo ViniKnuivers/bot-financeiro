@@ -364,6 +364,8 @@ const PARSER_ERROR_MESSAGES: Record<TransactionParserErrorReason, string> = {
   timeout: 'A IA demorou demais para responder. Pode mandar de novo?',
   rate_limit:
     'Atingi o limite de uso gratuito da IA por agora. Espera um minutinho e manda de novo.',
+  daily_quota:
+    'A cota gratuita de hoje da IA acabou em todos os modelos. Ela renova de madrugada (por volta das 4h ou 5h, horário de Brasília). Se precisar, anote e mande de novo amanhã.',
   unavailable: 'A IA está instável no momento. Tenta de novo em alguns instantes.',
   invalid_response: 'Não consegui entender essa direito. Pode reformular? Ex.: "almoço 32 no pix".',
   invalid_api_key: 'A chave do Gemini foi recusada. Confira o GEMINI_API_KEY no .env.',

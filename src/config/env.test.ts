@@ -16,7 +16,13 @@ describe('loadEnv', () => {
     expect(env.ALLOWED_TELEGRAM_USER_ID).toBe(987654321);
     expect(env.APP_TIMEZONE).toBe('America/Sao_Paulo');
     expect(env.GEMINI_MODEL).toBe('gemini-3.8-flash');
-    expect(env.GEMINI_FALLBACK_MODELS).toEqual(['gemini-3.6-flash', 'gemini-3.5-flash-lite']);
+    expect(env.GEMINI_FALLBACK_MODELS).toEqual([
+      'gemini-3.7-flash',
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite',
+      'gemini-3.1-flash-lite',
+    ]);
   });
 
   it('aceita lista de modelos reserva com espaços e itens vazios', () => {
