@@ -62,8 +62,9 @@ Bot:   ✅ Registrado:
 - **Gastos fixos automáticos:** cadastre aluguel, assinaturas, academia… uma vez, e o bot
   lança sozinho todo mês no dia certo, avisando com um botão Desfazer.
 - **Planilha Google ao vivo (opcional):** tudo que você registra aparece numa planilha
-  sua, com resumo do mês, categorias, cartões, investimentos e gráficos que se atualizam
-  sozinhos. Veja [Planilha Google](#planilha-google).
+  sua, com um **Painel** escuro com detalhes dourados: números do mês com comparação ao
+  mês anterior, gráficos, orçamento e cartões com barras de uso, e uma lista para escolher
+  o mês. Tudo se atualiza sozinho. Veja [Planilha Google](#planilha-google).
 - **Desfaz fácil:** cada registro tem um botão "Desfazer", e o comando `/desfazer` apaga o
   último lançamento.
 
@@ -224,7 +225,7 @@ fatura como paga (o que libera o limite dela).
 | `/orcamento` | Limites mensais por categoria, com aviso aos 80% e 100%              |
 | `/fixos`     | Gastos fixos que o bot lança sozinho todo mês                        |
 | `/planilha`  | Link da sua planilha e situação da sincronização                     |
-| `/grafico`   | Link direto para os gráficos da planilha                             |
+| `/grafico`   | Link direto para o Painel da planilha (números e gráficos)           |
 | `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
 | `/ultimos`   | Seus 10 últimos lançamentos                                          |
 | `/desfazer`  | Apaga o último lançamento                                            |
@@ -274,9 +275,25 @@ planilhas que você compartilhar com ele.
 docker compose --profile app up -d
 ```
 
-Em alguns segundos a planilha ganha as abas **Gráficos, Resumo, Lançamentos, Categorias,
-Cartões e vales** e **Investimentos**. Mande `/planilha` no Telegram para ver o link e a
-última sincronização, e `/grafico` para ir direto aos gráficos.
+Em alguns segundos a planilha ganha as abas **Painel, Lançamentos, Resumo, Categorias,
+Cartões e vales** e **Investimentos**, todas no tema escuro. Mande `/planilha` no Telegram
+para ver o link e a última sincronização, e `/grafico` para ir direto ao Painel.
+
+**O Painel** é a primeira aba e mostra tudo numa tela:
+
+- **Mês:** a lista no topo escolhe o mês. Tudo se ajusta na hora: os números, a rosca de
+  categorias, o orçamento e os maiores gastos. "Mês atual" acompanha a virada do mês sozinho.
+- **Cartões com os números do mês:** receitas, despesas, sobra, investido e o saldo das contas.
+  Cada um mostra a comparação com o mês anterior: ▲ verde quando melhorou, ▼ vermelho quando
+  piorou (em despesas, subir é vermelho).
+- **Gráficos:** gastos por categoria, receitas × despesas dos últimos 12 meses, investido
+  acumulado e faturas dos cartões (com as parcelas futuras).
+- **Barras de uso:** orçamento por categoria e limite dos cartões ficam verdes, âmbar a partir
+  de 80% e vermelhos acima de 100%.
+- **Listas:** os 5 maiores gastos do mês escolhido e os 8 últimos lançamentos.
+
+Os números vêm de uma aba oculta chamada **Dados**, que o bot preenche. Não é preciso
+mexer nela.
 
 Como funciona:
 
@@ -293,9 +310,14 @@ Como funciona:
   você corrigir.
 - **Proteção contra acidentes:** se mais de 5 linhas sumirem de uma vez (ex.: a aba foi
   limpa sem querer), o bot não apaga nada, devolve as linhas e pergunta no Telegram.
-- As outras abas (Resumo, Categorias, Cartões e vales, Investimentos, Gráficos) são
-  calculadas pelo bot: editar nelas mostra um aviso, e a mudança é sobrescrita. Você pode
-  criar abas próprias à vontade, que o bot não mexe nelas.
+- As outras abas (Painel, Resumo, Categorias, Cartões e vales, Investimentos) são
+  calculadas pelo bot: editar nelas mostra um aviso, e a mudança é sobrescrita. A única
+  exceção é a lista de mês do Painel, que é sua. Você pode criar abas próprias à vontade,
+  que o bot não mexe nelas.
+- Na aba Lançamentos, as categorias aparecem com emoji ("🍔 Alimentação"). Ao digitar, pode
+  escrever só "Alimentação", que o bot entende.
+- Apagar uma linha inteira de Lançamentos mostra o aviso "Pense bem!" do Google (a coluna ID,
+  escondida, é protegida). É só confirmar.
 - Se editar na planilha e, no mesmo minuto, mudar o mesmo lançamento pelo Telegram, vale a
   versão do bot (e ele avisa).
 - Se a sincronização falhar (planilha não compartilhada, sem internet), o bot avisa uma

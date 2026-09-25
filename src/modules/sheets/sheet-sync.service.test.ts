@@ -76,7 +76,7 @@ function setup() {
 }
 
 describe('SheetSyncService', () => {
-  it('na primeira vez cria as 6 abas, os gráficos e escreve os dados', async () => {
+  it('na primeira vez cria as 7 abas, o Painel com gráficos e escreve os dados', async () => {
     const { sync, gateway, register } = setup();
     await register();
     await register({
@@ -96,10 +96,12 @@ describe('SheetSyncService', () => {
         'Categorias',
         'Cartões e vales',
         'Investimentos',
-        'Gráficos',
+        'Painel',
+        'Dados',
       ]),
     );
-    expect(gateway.chartCount()).toBe(4); // sem cartão com fatura: sem gráfico de faturas
+    expect(gateway.tabs.map((t) => t.title)).not.toContain('Gráficos');
+    expect(gateway.chartCount()).toBe(3); // sem cartão com fatura: sem gráfico de faturas
     const rows = gateway.range("'Lançamentos'!A1:K");
     expect(rows[0]?.[0]).toBe('ID');
     expect(rows).toHaveLength(3);
@@ -119,7 +121,8 @@ describe('SheetSyncService', () => {
     await sync.syncNow();
 
     expect(gateway.count('addChart')).toBe(charts);
-    expect(gateway.count('addSheet')).toBe(6);
+    expect(gateway.count('addSheet')).toBe(7);
+    expect(gateway.count('addBanding')).toBe(1);
   });
 
   it('recria os gráficos quando entra um cartão com fatura (nova série)', async () => {
@@ -129,7 +132,7 @@ describe('SheetSyncService', () => {
 
     await sync.syncNow();
 
-    expect(gateway.chartCount()).toBe(5);
+    expect(gateway.chartCount()).toBe(4);
     expect(gateway.range("'Cartões e vales'!A2:B12")[0]).toEqual(['Mês', 'Santander']);
   });
 
@@ -174,13 +177,64 @@ describe('SheetSyncService', () => {
     expect(notify).toHaveBeenCalledOnce();
   });
 
-  it('link direto para a aba de gráficos', async () => {
+  it('link direto para o Painel', async () => {
     const { sync, gateway } = setup();
     await sync.syncNow();
-    const chartsTab = gateway.tabs.find((t) => t.title === 'Gráficos');
+    const dashboard = gateway.tabs.find((t) => t.title === 'Painel');
 
-    expect(sync.url('charts')).toBe(
-      `https://docs.google.com/spreadsheets/d/planilha-teste/edit#gid=${chartsTab?.sheetId}`,
+    expect(sync.url('dashboard')).toBe(
+      `https://docs.google.com/spreadsheets/d/planilha-teste/edit#gid=${dashboard?.sheetId}`,
+    );
+  });
+
+  it('planilha de versão antiga: apaga a aba Gráficos e monta o Painel', async () => {
+    const { sync, gateway } = setup();
+    gateway.tabs.push({
+      sheetId: 7,
+      title: 'Gráficos',
+      chartIds: [70, 71],
+      bandedRangeIds: [],
+      conditionalFormatCount: 0,
+    });
+
+    await sync.syncNow();
+    await sync.syncNow();
+
+    expect(gateway.tabs.map((t) => t.title)).not.toContain('Gráficos');
+    expect(gateway.count('deleteSheet')).toBe(1);
+    expect(gateway.chartCount()).toBe(3);
+  });
+
+  it('reaplicar o visual não acumula faixas listradas nem regras de cor', async () => {
+    const { sync, gateway, accounts } = setup();
+    await sync.syncNow();
+    const rules = gateway.tabs.map((t) => t.conditionalFormatCount);
+
+    // Conta nova muda a lista de seleção: o visual inteiro é refeito.
+    await accounts.create('BANK', 'Nubank');
+    await sync.syncNow();
+
+    expect(gateway.tabs.map((t) => t.conditionalFormatCount)).toEqual(rules);
+    expect(gateway.tabs.flatMap((t) => t.bandedRangeIds)).toHaveLength(1);
+  });
+
+  it('o mês escolhido no Painel não é sobrescrito (só preenchido se estiver vazio)', async () => {
+    const { sync, gateway, accounts } = setup();
+    await sync.syncNow();
+    expect(gateway.formulas.get("'Painel'!H2")).toEqual([['Mês atual']]);
+
+    gateway.formulas.set("'Painel'!H2", [['ago/2026']]); // você escolheu agosto
+    await accounts.create('BANK', 'Nubank');
+    await sync.syncNow();
+    expect(gateway.formulas.get("'Painel'!H2")).toEqual([['ago/2026']]);
+
+    gateway.formulas.set("'Painel'!H2", [['']]); // apagou a célula
+    await accounts.create('BANK', 'Inter');
+    await sync.syncNow();
+    expect(gateway.formulas.get("'Painel'!H2")).toEqual([['Mês atual']]);
+    // Fórmulas vão na sintaxe da planilha pt_BR (";" entre argumentos).
+    expect(gateway.formulas.get("'Painel'!B5")?.[0]?.[0]).toBe(
+      '=INDEX(Dados!$B$2:$B$25;Dados!$BC$2)',
     );
   });
 });

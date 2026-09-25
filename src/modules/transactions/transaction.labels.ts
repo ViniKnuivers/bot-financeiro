@@ -47,3 +47,29 @@ export const TYPE_ICONS: Record<TransactionType, string> = {
   INVESTMENT: '📈',
   REDEMPTION: '📤',
 };
+
+export const CATEGORY_ICONS: Record<Category, string> = {
+  ALIMENTACAO: '🍔',
+  MERCADO: '🛒',
+  TRANSPORTE: '🚗',
+  MORADIA: '🏠',
+  CONTAS: '🧾',
+  SAUDE: '💊',
+  EDUCACAO: '📚',
+  LAZER: '🎉',
+  ASSINATURAS: '📺',
+  COMPRAS: '🛍️',
+  OUTROS: '📦',
+  SALARIO: '💼',
+  ESTAGIO: '🎓',
+  FREELA: '💻',
+  OUTROS_RECEITA: '💵',
+  VALE_REFEICAO: '🍽️',
+  VALE_ALIMENTACAO: '🧺',
+  INVESTIMENTO: '📈',
+};
+
+/** "🍔 Alimentação": como a categoria aparece na planilha. */
+export function categoryLabelWithIcon(category: Category): string {
+  return `${CATEGORY_ICONS[category]} ${CATEGORY_LABELS[category]}`;
+}

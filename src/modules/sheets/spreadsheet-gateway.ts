@@ -6,6 +6,10 @@ export interface SheetTab {
   sheetId: number;
   title: string;
   chartIds: number[];
+  /** Faixas com linhas listradas (apagadas antes de reaplicar o visual). */
+  bandedRangeIds: number[];
+  /** Quantas regras de formatação condicional a aba tem. */
+  conditionalFormatCount: number;
 }
 
 export interface RangeValues {
@@ -27,6 +31,11 @@ export interface SpreadsheetGateway {
   replaceValues(clearRanges: string[], data: RangeValues[]): Promise<void>;
   /** Lê valores crus: números como número e datas como número de série. */
   readValues(range: string): Promise<unknown[][]>;
+  /**
+   * Limpa as faixas e escreve como se fosse digitado (fórmulas funcionam). As fórmulas
+   * precisam estar na sintaxe do idioma da planilha (ver `toLocaleFormula`).
+   */
+  writeFormulas(clearRanges: string[], data: RangeValues[]): Promise<void>;
 }
 
 export type SheetsErrorReason = 'permission' | 'not_found' | 'quota' | 'unavailable' | 'unexpected';
@@ -95,7 +104,8 @@ export class GoogleSheetsGateway implements SpreadsheetGateway {
     try {
       const { data } = await this.api.spreadsheets.get({
         spreadsheetId: this.spreadsheetId,
-        fields: 'sheets(properties(sheetId,title),charts(chartId))',
+        fields:
+          'sheets(properties(sheetId,title),charts(chartId),bandedRanges(bandedRangeId),conditionalFormats(ranges(sheetId)))',
       });
       return (data.sheets ?? []).map((sheet) => ({
         sheetId: sheet.properties?.sheetId ?? 0,
@@ -103,6 +113,10 @@ export class GoogleSheetsGateway implements SpreadsheetGateway {
         chartIds: (sheet.charts ?? []).flatMap((chart) =>
           typeof chart.chartId === 'number' ? [chart.chartId] : [],
         ),
+        bandedRangeIds: (sheet.bandedRanges ?? []).flatMap((band) =>
+          typeof band.bandedRangeId === 'number' ? [band.bandedRangeId] : [],
+        ),
+        conditionalFormatCount: sheet.conditionalFormats?.length ?? 0,
       }));
     } catch (error) {
       throw toSheetsError(error);
@@ -136,6 +150,18 @@ export class GoogleSheetsGateway implements SpreadsheetGateway {
   }
 
   async replaceValues(clearRanges: string[], data: RangeValues[]): Promise<void> {
+    await this.clearAndWrite(clearRanges, data, 'RAW');
+  }
+
+  async writeFormulas(clearRanges: string[], data: RangeValues[]): Promise<void> {
+    await this.clearAndWrite(clearRanges, data, 'USER_ENTERED');
+  }
+
+  private async clearAndWrite(
+    clearRanges: string[],
+    data: RangeValues[],
+    valueInputOption: 'RAW' | 'USER_ENTERED',
+  ): Promise<void> {
     try {
       if (clearRanges.length > 0) {
         await this.api.spreadsheets.values.batchClear({
@@ -145,7 +171,7 @@ export class GoogleSheetsGateway implements SpreadsheetGateway {
       }
       await this.api.spreadsheets.values.batchUpdate({
         spreadsheetId: this.spreadsheetId,
-        requestBody: { valueInputOption: 'RAW', data },
+        requestBody: { valueInputOption, data },
       });
     } catch (error) {
       throw toSheetsError(error);

@@ -46,6 +46,7 @@ function tx(id: string, overrides: Partial<Transaction> = {}): Transaction {
 function sheetRows(transactions: Transaction[]) {
   const content = buildSheetContent({
     today: '2026-09-24',
+    updatedAt: '24/09/2026 10:00',
     transactions,
     accounts: ACCOUNTS,
     months: [],

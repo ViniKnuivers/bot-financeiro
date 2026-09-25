@@ -4,34 +4,40 @@
  */
 
 export const TABS = {
+  dashboard: 'Painel',
   transactions: 'Lançamentos',
   summary: 'Resumo',
   categories: 'Categorias',
   cards: 'Cartões e vales',
   investments: 'Investimentos',
-  charts: 'Gráficos',
+  data: 'Dados',
 } as const;
 
 export type TabKey = keyof typeof TABS;
 
 /** Ordem das abas na planilha. */
 export const TAB_ORDER: readonly TabKey[] = [
-  'charts',
-  'summary',
+  'dashboard',
   'transactions',
+  'summary',
   'categories',
   'cards',
   'investments',
+  'data',
 ];
 
 /** Abas só de leitura (calculadas pelo bot): editar à mão mostra um aviso. */
 export const READ_ONLY_TABS: readonly TabKey[] = [
-  'charts',
+  'dashboard',
   'summary',
   'categories',
   'cards',
   'investments',
+  'data',
 ];
+
+/** Abas que versões antigas do bot criavam e que ele mesmo remove (os gráficos foram para o Painel). */
+export const LEGACY_TAB_TITLES: readonly string[] = ['Gráficos'];
 
 export const TRANSACTION_HEADERS = [
   'ID',

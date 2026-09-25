@@ -1,3 +1,4 @@
+import type { sheets_v4 } from '@googleapis/sheets';
 import type {
   RangeValues,
   SheetRequest,
@@ -11,12 +12,16 @@ import type {
  */
 export class InMemorySpreadsheet implements SpreadsheetGateway {
   readonly spreadsheetId = 'planilha-teste';
-  tabs: SheetTab[] = [{ sheetId: 0, title: 'Página1', chartIds: [] }];
+  tabs: SheetTab[] = [newTab(0, 'Página1')];
   readonly requests: SheetRequest[] = [];
   written: RangeValues[] = [];
+  /** Células escritas como digitadas (fórmulas do Painel), por faixa. */
+  formulas = new Map<string, RangeValues['values']>();
   /** Próximas chamadas falham com este erro (ver `googleError`). */
   failWith: Error | null = null;
   private nextId = 100;
+  /** Colunas de cada aba: como no Google, aba nova nasce com 26 (A..Z). */
+  private readonly columns = new Map<number, number>([[0, 26]]);
 
   listTabs(): Promise<SheetTab[]> {
     if (this.failWith) return Promise.reject(this.failWith);
@@ -28,7 +33,38 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
     for (const request of requests) {
       this.requests.push(request);
       const title = request.addSheet?.properties?.title;
-      if (title) this.tabs.push({ sheetId: this.nextId++, title, chartIds: [] });
+      if (title) {
+        const sheetId = this.nextId++;
+        this.tabs.push(newTab(sheetId, title));
+        this.columns.set(sheetId, request.addSheet?.properties?.gridProperties?.columnCount ?? 26);
+      }
+      const resized = request.updateSheetProperties?.properties;
+      const columnCount = resized?.gridProperties?.columnCount;
+      if (typeof resized?.sheetId === 'number' && typeof columnCount === 'number') {
+        this.columns.set(resized.sheetId, columnCount);
+      }
+      for (const series of chartSources(request)) {
+        const limit = this.columns.get(series.sheetId ?? -1) ?? 26;
+        if ((series.endColumnIndex ?? 0) > limit) {
+          return Promise.reject(new Error(`gráfico fora da grade: ${JSON.stringify(series)}`));
+        }
+      }
+      const deleted = request.deleteSheet?.sheetId;
+      if (typeof deleted === 'number') this.tabs = this.tabs.filter((t) => t.sheetId !== deleted);
+      const banded = request.addBanding?.bandedRange?.range?.sheetId;
+      if (typeof banded === 'number') this.tab(banded)?.bandedRangeIds.push(this.nextId++);
+      const unbanded = request.deleteBanding?.bandedRangeId;
+      if (typeof unbanded === 'number') {
+        for (const tab of this.tabs) {
+          tab.bandedRangeIds = tab.bandedRangeIds.filter((id) => id !== unbanded);
+        }
+      }
+      const ruleTab = request.addConditionalFormatRule?.rule?.ranges?.[0]?.sheetId;
+      const rules = typeof ruleTab === 'number' ? this.tab(ruleTab) : undefined;
+      if (rules) rules.conditionalFormatCount += 1;
+      const removedRule = request.deleteConditionalFormatRule?.sheetId;
+      const fewer = typeof removedRule === 'number' ? this.tab(removedRule) : undefined;
+      if (fewer) fewer.conditionalFormatCount -= 1;
       const chartTab = request.addChart?.chart?.position?.overlayPosition?.anchorCell?.sheetId;
       if (typeof chartTab === 'number') {
         this.tabs.find((tab) => tab.sheetId === chartTab)?.chartIds.push(this.nextId++);
@@ -41,6 +77,12 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
     return Promise.resolve();
   }
 
+  writeFormulas(_clearRanges: string[], data: RangeValues[]): Promise<void> {
+    if (this.failWith) return Promise.reject(this.failWith);
+    for (const { range, values } of data) this.formulas.set(range, structuredClone(values));
+    return Promise.resolve();
+  }
+
   replaceValues(_clearRanges: string[], data: RangeValues[]): Promise<void> {
     if (this.failWith) return Promise.reject(this.failWith);
     this.written = structuredClone(data);
@@ -49,11 +91,15 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
   }
 
   /**
-   * Simula a leitura: devolve as linhas de dados da aba Lançamentos (sem o cabeçalho),
+   * Simula a leitura: células do Painel vêm do que foi escrito como digitado; o resto
+   * devolve as linhas de dados da aba Lançamentos (sem o cabeçalho),
    * que os testes podem editar em `transactionRows` antes da próxima sincronização.
    */
-  readValues(): Promise<unknown[][]> {
+  readValues(range: string): Promise<unknown[][]> {
     if (this.failWith) return Promise.reject(this.failWith);
+    if (range.startsWith("'Painel'")) {
+      return Promise.resolve(structuredClone(this.formulas.get(range) ?? []));
+    }
     return Promise.resolve(structuredClone(this.transactionRows));
   }
 
@@ -77,9 +123,30 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
     return this.requests.filter((request) => request[kind] !== undefined).length;
   }
 
+  tab(sheetId: number): SheetTab | undefined {
+    return this.tabs.find((tab) => tab.sheetId === sheetId);
+  }
+
   chartCount(): number {
     return this.tabs.reduce((total, tab) => total + tab.chartIds.length, 0);
   }
+}
+
+/** Todas as faixas de dados de um addChart (para validar contra o tamanho da aba). */
+function chartSources(request: SheetRequest): sheets_v4.Schema$GridRange[] {
+  const spec = request.addChart?.chart?.spec;
+  if (!spec) return [];
+  const data: (sheets_v4.Schema$ChartData | undefined)[] = [
+    spec.pieChart?.domain,
+    spec.pieChart?.series,
+    ...(spec.basicChart?.domains ?? []).map((d) => d.domain),
+    ...(spec.basicChart?.series ?? []).map((s) => s.series),
+  ];
+  return data.flatMap((d) => d?.sourceRange?.sources ?? []);
+}
+
+function newTab(sheetId: number, title: string): SheetTab {
+  return { sheetId, title, chartIds: [], bandedRangeIds: [], conditionalFormatCount: 0 };
 }
 
 /** Erro no formato das bibliotecas do Google (status HTTP ou código de rede). */

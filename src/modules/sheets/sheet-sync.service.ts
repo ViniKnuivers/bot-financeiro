@@ -20,18 +20,26 @@ import {
   type SheetCard,
   type SheetData,
 } from './sheet-content.js';
-import { SUMMARY_MONTHS, TABS, type TabKey } from './sheet-layout.js';
 import {
-  chartRequests,
+  dashboardCells,
+  dashboardChartRequests,
+  dashboardClearRanges,
+  PANEL,
+} from './sheet-dashboard.js';
+import { a1, SUMMARY_MONTHS, type TabKey } from './sheet-layout.js';
+import {
   columnWidthRequests,
   createTabsRequests,
   formattingRequests,
+  legacyTabRequests,
   missingTabs,
   protectionRequests,
+  restyleRequests,
   tabIds,
   validationRequests,
   type TabIds,
 } from './sheet-structure.js';
+import { THEME_VERSION } from './sheet-theme.js';
 import { toSheetsError, type SheetsError, type SpreadsheetGateway } from './spreadsheet-gateway.js';
 
 const STRUCTURE_KEY = 'sheets.structure';
@@ -185,7 +193,7 @@ export class SheetSyncService {
         now.getTime() - this.lastPushAt > REFRESH_EVERY_MS;
       if (mustPush) {
         this.dirty = false;
-        await this.push(imported);
+        await this.push(imported, now);
         this.lastPushAt = now.getTime();
         this.lastPushMonth = month;
       }
@@ -235,8 +243,8 @@ export class SheetSyncService {
    * Reescreve a planilha a partir do banco e guarda como cada linha ficou (a base para
    * detectar a próxima edição sua).
    */
-  private async push(imported: ImportResult): Promise<void> {
-    const data = await this.collect();
+  private async push(imported: ImportResult, now: Date): Promise<void> {
+    const data = await this.collect(now);
     const content = buildSheetContent({
       ...data,
       statuses: imported.statuses,
@@ -252,16 +260,19 @@ export class SheetSyncService {
   }
 
   /**
-   * Cria as abas que faltam e aplica formatos, listas e proteções. Os gráficos só são
-   * recriados quando a planilha é nova ou muda o número de cartões com fatura.
+   * Cria as abas que faltam (e apaga as de versões antigas) e aplica formatos, listas e
+   * proteções. O visual completo, as fórmulas do Painel e os gráficos só são refeitos
+   * quando a planilha é nova, quando muda a versão do tema ou quando mudam as contas
+   * (um cartão com fatura vira série do gráfico; as contas entram na lista de seleção).
    * Retorna true quando a estrutura mudou.
    */
   private async ensureStructure(): Promise<boolean> {
-    const { gateway, jobState } = this.deps;
+    const { gateway, jobState, timeZone } = this.deps;
     let tabs = await gateway.listTabs();
     const created = missingTabs(tabs);
-    if (created.length > 0) {
-      await gateway.batchUpdate(createTabsRequests(created, this.deps.timeZone));
+    const legacy = legacyTabRequests(tabs);
+    if (created.length > 0 || legacy.length > 0) {
+      await gateway.batchUpdate([...createTabsRequests(created, timeZone), ...legacy]);
       tabs = await gateway.listTabs();
     }
     const ids = tabIds(tabs);
@@ -278,26 +289,38 @@ export class SheetSyncService {
         })),
     ).length;
     const labels = accounts.map((account) => accountLabel(account));
-    const signature = JSON.stringify({ cardCount, labels });
-    const chartIds = tabs.find((tab) => tab.title === TABS.charts)?.chartIds ?? [];
+    const signature = JSON.stringify({ theme: THEME_VERSION, cardCount, labels });
+    const chartIds = tabs.find((tab) => tab.sheetId === ids.dashboard)?.chartIds ?? [];
     const structureChanged = (await jobState.get(STRUCTURE_KEY)) !== signature;
-    const rebuildCharts = created.length > 0 || chartIds.length === 0 || structureChanged;
+    const rebuild = created.length > 0 || chartIds.length === 0 || structureChanged;
 
     const requests = [
-      ...(this.formatted && created.length === 0 ? [] : formattingRequests(ids)),
+      ...(this.formatted && !rebuild ? [] : formattingRequests(ids)),
       ...protectionRequests(ids, created),
-      ...(rebuildCharts || !this.formatted ? validationRequests(ids, labels) : []),
-      ...(rebuildCharts ? chartRequests(ids, chartIds, cardCount) : []),
+      ...(rebuild || !this.formatted ? validationRequests(ids, labels) : []),
+      ...(rebuild ? restyleRequests(ids, tabs, timeZone) : []),
+      ...(rebuild ? dashboardChartRequests(ids, chartIds, cardCount) : []),
     ];
     await gateway.batchUpdate(requests);
+    if (rebuild) {
+      // O mês escolhido no Painel só é escrito se estiver vazio: depois, a escolha é sua.
+      const selector = await gateway.readValues(a1('dashboard', PANEL.selector));
+      await gateway.writeFormulas(
+        dashboardClearRanges(),
+        dashboardCells({
+          cardsWithInvoices: cardCount,
+          includeSelector: selector.flat().every((cell) => cell === '' || cell == null),
+        }),
+      );
+    }
     this.formatted = true;
-    if (rebuildCharts) await jobState.set(STRUCTURE_KEY, signature);
+    if (rebuild) await jobState.set(STRUCTURE_KEY, signature);
     // Estrutura nova (ex.: um cartão a mais) exige reescrever os dados para os gráficos.
-    return rebuildCharts;
+    return rebuild;
   }
 
   /** Junta tudo que as abas mostram, a partir dos mesmos relatórios do /resumo. */
-  private async collect(): Promise<SheetData> {
+  private async collect(now: Date): Promise<SheetData> {
     const { transactions, accounts, reports, budgets } = this.deps;
     const today = this.deps.today();
     const [months, all, forReports, allAccounts, active, budgetList, balances, investments] =
@@ -340,6 +363,7 @@ export class SheetSyncService {
 
     return {
       today,
+      updatedAt: formatDateTime(now, this.deps.timeZone),
       transactions: all,
       accounts: allAccounts,
       months,
@@ -350,4 +374,18 @@ export class SheetSyncService {
       netInvestedBefore,
     };
   }
+}
+
+/** "25/09/2026 16:40" no fuso do usuário. */
+function formatDateTime(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+    .format(instant)
+    .replace(',', '');
 }

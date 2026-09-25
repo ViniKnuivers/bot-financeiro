@@ -314,7 +314,7 @@ export class Assistant implements MessageHandler {
     const { sheets } = this.deps;
     if (!sheets) return this.handleSpreadsheet();
     return Promise.resolve({
-      text: `📈 Seus gráficos (atualizados a cada lançamento):\n${sheets.url('charts')}`,
+      text: `📊 Seu painel, com os gráficos (atualizado a cada lançamento):\n${sheets.url('dashboard')}`,
     });
   }
 
@@ -351,7 +351,7 @@ export class Assistant implements MessageHandler {
       ? `🗓️ ${title} fechado!\n${sheets.failureMessage(lastError)}`
       : `🗓️ ${title} fechado! A planilha e os gráficos estão 100% atualizados.`;
     return {
-      text: `${header}\n\n${body}\n\n📈 Gráficos: ${sheets.url('charts')}\n📄 Planilha: ${sheets.url()}`,
+      text: `${header}\n\n${body}\n\n📊 Painel: ${sheets.url('dashboard')}\n📄 Planilha: ${sheets.url()}`,
     };
   }
 

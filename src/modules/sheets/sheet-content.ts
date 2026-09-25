@@ -7,15 +7,15 @@ import type { BudgetLimit } from '../budgets/budget.repository.js';
 import type { InvestmentPosition, MonthSummary } from '../reports/monthly-report.js';
 import type { AccountBalance } from '../reports/report.service.js';
 import {
-  CATEGORY_LABELS,
+  categoryLabelWithIcon,
   PAYMENT_METHOD_LABELS,
   TYPE_LABELS,
 } from '../transactions/transaction.labels.js';
 import type { Transaction } from '../transactions/transaction.repository.js';
 import { EXPENSE_CATEGORIES } from '../transactions/transaction.schemas.js';
+import { DATA, dataTabContent, monthTable } from './sheet-dashboard.js';
 import {
   a1,
-  CHART_MONTHS,
   columnLetter,
   INVOICE_MONTHS_BACK,
   INVOICE_ROWS,
@@ -38,6 +38,8 @@ export interface SheetCard {
 export interface SheetData {
   /** Hoje ("YYYY-MM-DD") no fuso do usuário. */
   today: string;
+  /** Momento desta sincronização, para o "Atualizado em" do Painel ("25/09/2026 16:40"). */
+  updatedAt: string;
   transactions: readonly Transaction[];
   /** Todas as contas, inclusive arquivadas (lançamentos antigos usam o nome). */
   accounts: readonly Account[];
@@ -82,6 +84,7 @@ export function buildSheetContent(input: SheetData): SheetContent {
       a1('categories', 'A1:F20'),
       a1('cards', 'A1:Z40'),
       a1('investments', 'A1:G40'),
+      a1('data', DATA.clear),
     ],
     data: [
       ...transactionsTab(input),
@@ -89,6 +92,7 @@ export function buildSheetContent(input: SheetData): SheetContent {
       ...categoriesTab(input),
       ...cardsTab(input),
       ...investmentsTab(input),
+      ...dataTabContent(input),
     ],
   };
 }
@@ -107,7 +111,7 @@ function transactionsTab({
       toSheetSerial(t.occurredAt.toISOString().slice(0, 10)),
       TYPE_LABELS[t.type],
       t.description,
-      CATEGORY_LABELS[t.category],
+      categoryLabelWithIcon(t.category),
       reais(t.amountCents),
       t.installments,
       t.paymentMethod ? PAYMENT_METHOD_LABELS[t.paymentMethod] : '',
@@ -144,37 +148,11 @@ function summaryTab(input: SheetData): RangeValues[] {
       .map(({ account, cents }): Cell[] => [accountLabel(account), reais(cents)]),
   ];
 
-  let cumulative = input.netInvestedBefore;
-  const table: Cell[][] = input.months.map((m) => {
-    cumulative += m.netInvestedCents;
-    return [
-      formatMonthShort(m.month),
-      reais(m.incomeCents),
-      reais(m.expenseCents),
-      reais(m.surplusCents),
-      reais(m.investedCents),
-      reais(m.redeemedCents),
-      reais(m.netInvestedCents),
-      reais(m.freeCents),
-      reais(cumulative),
-    ];
-  });
-
-  // Apoio aos gráficos (N1:S13): os 12 últimos meses com cabeçalho próprio, porque a
-  // legenda de um gráfico do Sheets vem da linha de cabeçalho da faixa.
-  const chartRows = table
-    .slice(-CHART_MONTHS)
-    .map((row) => [row[0], row[1], row[2], row[3], row[6], row[8]] as Cell[]);
-
   return [
     { range: a1('summary', 'A1:B20'), values: block },
-    { range: a1('summary', 'D1:L25'), values: [[...SUMMARY_TABLE_HEADERS], ...table] },
     {
-      range: a1('summary', 'N1:S13'),
-      values: [
-        ['Mês', 'Receitas', 'Despesas', 'Sobra', 'Investido no mês', 'Investido acumulado'],
-        ...chartRows,
-      ],
+      range: a1('summary', 'D1:L25'),
+      values: [[...SUMMARY_TABLE_HEADERS], ...monthTable(input)],
     },
   ];
 }
@@ -194,7 +172,7 @@ function categoriesTab(input: SheetData): RangeValues[] {
     const previousCents = before.get(category) ?? 0;
     const limit = budgets.get(category);
     return [
-      CATEGORY_LABELS[category],
+      categoryLabelWithIcon(category),
       reais(cents),
       reais(previousCents),
       reais(cents - previousCents),

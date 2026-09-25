@@ -1,11 +1,15 @@
 import type { sheets_v4 } from '@googleapis/sheets';
+import type { Category } from '../../generated/prisma/enums.js';
 import {
+  categoryLabelWithIcon,
   CATEGORY_LABELS,
   PAYMENT_METHOD_LABELS,
   TYPE_LABELS,
 } from '../transactions/transaction.labels.js';
+import { DATA_COLUMN_COUNT, dashboardFormatRequests, PANEL } from './sheet-dashboard.js';
 import {
   INVOICE_ROWS,
+  LEGACY_TAB_TITLES,
   MAX_CARD_ROWS,
   MAX_INVESTMENT_ROWS,
   READ_ONLY_TABS,
@@ -14,6 +18,16 @@ import {
   type TabKey,
 } from './sheet-layout.js';
 import type { Cell } from './sheet-content.js';
+import { toLocaleNumber } from './sheet-formula.js';
+import {
+  bottomBorder,
+  cellFormat,
+  color,
+  conditionalText,
+  spreadsheetThemeRequest,
+  textFormat,
+  THEME,
+} from './sheet-theme.js';
 import type { RangeValues, SheetRequest, SheetTab } from './spreadsheet-gateway.js';
 
 export type TabIds = Record<TabKey, number>;
@@ -26,23 +40,28 @@ export function missingTabs(existing: readonly SheetTab[]): TabKey[] {
 
 export function createTabsRequests(keys: readonly TabKey[], timeZone: string): SheetRequest[] {
   return [
-    // Formatos brasileiros (R$ 1.234,56 e dd/mm/aaaa) e o fuso do usuário.
-    {
-      updateSpreadsheetProperties: {
-        properties: { locale: 'pt_BR', timeZone },
-        fields: 'locale,timeZone',
-      },
-    },
+    spreadsheetThemeRequest(timeZone),
     ...keys.map((key): SheetRequest => ({
       addSheet: {
         properties: {
           title: TABS[key],
           index: TAB_ORDER.indexOf(key),
-          gridProperties: { frozenRowCount: key === 'charts' ? 0 : 1 },
+          hidden: key === 'data',
+          gridProperties: {
+            frozenRowCount: key === 'dashboard' || key === 'data' ? 0 : 1,
+            ...(key === 'data' ? { columnCount: DATA_COLUMN_COUNT } : {}),
+          },
         },
       },
     })),
   ];
+}
+
+/** Apaga abas de versões antigas do bot (ex.: "Gráficos", que virou o Painel). */
+export function legacyTabRequests(tabs: readonly SheetTab[]): SheetRequest[] {
+  return tabs
+    .filter((tab) => LEGACY_TAB_TITLES.includes(tab.title))
+    .map((tab) => ({ deleteSheet: { sheetId: tab.sheetId } }));
 }
 
 export function tabIds(tabs: readonly SheetTab[]): TabIds {
@@ -78,68 +97,185 @@ function numberFormat(
   range: sheets_v4.Schema$GridRange,
   format: sheets_v4.Schema$NumberFormat,
 ): SheetRequest {
-  return {
-    repeatCell: {
-      range,
-      cell: { userEnteredFormat: { numberFormat: format } },
-      fields: 'userEnteredFormat.numberFormat',
-    },
-  };
+  return cellFormat(range, { numberFormat: format });
 }
 
-function header(range: sheets_v4.Schema$GridRange): SheetRequest {
-  return {
-    repeatCell: {
-      range,
-      cell: {
-        userEnteredFormat: {
-          textFormat: { bold: true },
-          backgroundColor: { red: 0.9, green: 0.93, blue: 0.98 },
-        },
-      },
-      fields: 'userEnteredFormat(textFormat,backgroundColor)',
-    },
-  };
+/** Cabeçalho: dourado sobre grafite, com linha embaixo. */
+function header(range: sheets_v4.Schema$GridRange): SheetRequest[] {
+  return [
+    cellFormat(range, {
+      backgroundColorStyle: color(THEME.card),
+      textFormat: textFormat(THEME.gold, { bold: true }),
+    }),
+    bottomBorder(range, THEME.gold),
+  ];
 }
 
-/** Cabeçalhos em negrito e formatos de moeda, data e porcentagem. Seguro reaplicar. */
+/** Abas de tabela (todas menos o Painel, que tem layout próprio). */
+const TABLE_TABS: readonly TabKey[] = [
+  'transactions',
+  'summary',
+  'categories',
+  'cards',
+  'investments',
+  'data',
+];
+
+/** Fundo escuro, fonte e cabeçalhos das abas de tabela, e formatos de número. Seguro reaplicar. */
 export function formattingRequests(ids: TabIds): SheetRequest[] {
   const { transactions, summary, categories, cards, investments } = ids;
   return [
-    header(grid(transactions, [0, 1], [0, 11])),
+    ...TABLE_TABS.map((key) =>
+      cellFormat(
+        { sheetId: ids[key] },
+        {
+          backgroundColorStyle: color(THEME.background),
+          textFormat: textFormat(THEME.text, { size: 10 }),
+          verticalAlignment: 'MIDDLE',
+        },
+      ),
+    ),
+
+    ...header(grid(transactions, [0, 1], [0, 11])),
     numberFormat(grid(transactions, [1, 100_000], [1, 2]), DATE),
     numberFormat(grid(transactions, [1, 100_000], [5, 6]), CURRENCY),
 
-    header(grid(summary, [0, 1], [0, 2])),
-    header(grid(summary, [9, 10], [0, 2])),
-    header(grid(summary, [0, 1], [3, 12])),
-    header(grid(summary, [0, 1], [13, 19])),
+    ...header(grid(summary, [0, 1], [0, 2])),
+    ...header(grid(summary, [9, 10], [0, 2])),
+    ...header(grid(summary, [0, 1], [3, 12])),
     numberFormat(grid(summary, [1, 8], [1, 2]), CURRENCY),
     numberFormat(grid(summary, [10, 20], [1, 2]), CURRENCY),
     numberFormat(grid(summary, [1, 25], [4, 12]), CURRENCY),
-    numberFormat(grid(summary, [1, 13], [14, 19]), CURRENCY),
 
-    header(grid(categories, [0, 1], [0, 6])),
+    ...header(grid(categories, [0, 1], [0, 6])),
     numberFormat(grid(categories, [1, 12], [1, 5]), CURRENCY),
     numberFormat(grid(categories, [1, 12], [5, 6]), PERCENT),
 
-    header(grid(cards, [0, 2], [0, 1 + MAX_CARD_ROWS])),
-    header(grid(cards, [13, 15], [0, 6])),
+    ...header(grid(cards, [0, 2], [0, 1 + MAX_CARD_ROWS])),
+    ...header(grid(cards, [13, 15], [0, 6])),
     numberFormat(grid(cards, [2, 2 + INVOICE_ROWS], [1, 1 + MAX_CARD_ROWS]), CURRENCY),
     numberFormat(grid(cards, [15, 15 + MAX_CARD_ROWS], [1, 3]), CURRENCY),
     numberFormat(grid(cards, [15, 15 + MAX_CARD_ROWS], [3, 4]), DATE),
     numberFormat(grid(cards, [15, 15 + MAX_CARD_ROWS], [4, 6]), CURRENCY),
 
-    header(grid(investments, [0, 1], [0, 4])),
-    header(grid(investments, [0, 1], [5, 6])),
+    // Dados: em R$ também, para os eixos dos gráficos do Painel saírem em reais.
+    numberFormat(grid(ids.data, [1, 25], [1, 9]), CURRENCY),
+    numberFormat(grid(ids.data, [1, 13], [11, 16]), CURRENCY),
+
+    ...header(grid(investments, [0, 1], [0, 4])),
+    ...header(grid(investments, [0, 1], [5, 6])),
     numberFormat(grid(investments, [1, 1 + MAX_INVESTMENT_ROWS], [1, 4]), CURRENCY),
     numberFormat(grid(investments, [0, 1], [6, 7]), CURRENCY),
   ];
 }
 
+const TAB_COLORS: Record<TabKey, string> = {
+  dashboard: THEME.gold,
+  transactions: THEME.green,
+  summary: THEME.border,
+  categories: THEME.border,
+  cards: THEME.border,
+  investments: THEME.border,
+  data: THEME.border,
+};
+
+/**
+ * O visual completo, reaplicado quando a versão do tema (ou a estrutura) muda: tema da
+ * planilha, cores das abas, sem linhas de grade, Lançamentos listrados com filtro e ID
+ * escondido, regras de cor e o layout do Painel. Apaga antes as faixas listradas e regras
+ * condicionais das abas do bot, para não acumular a cada reaplicação.
+ */
+export function restyleRequests(
+  ids: TabIds,
+  tabs: readonly SheetTab[],
+  timeZone: string,
+): SheetRequest[] {
+  const botSheets = new Set(Object.values(ids));
+  const cleanup = tabs
+    .filter((tab) => botSheets.has(tab.sheetId))
+    .flatMap((tab): SheetRequest[] => [
+      ...tab.bandedRangeIds.map((bandedRangeId) => ({ deleteBanding: { bandedRangeId } })),
+      ...Array.from({ length: tab.conditionalFormatCount }, (): SheetRequest => ({
+        deleteConditionalFormatRule: { sheetId: tab.sheetId, index: 0 },
+      })),
+    ]);
+
+  const { transactions, summary, categories } = ids;
+  return [
+    ...cleanup,
+    spreadsheetThemeRequest(timeZone),
+    {
+      updateSheetProperties: {
+        properties: { sheetId: ids.data, gridProperties: { columnCount: DATA_COLUMN_COUNT } },
+        fields: 'gridProperties.columnCount',
+      },
+    },
+    ...TAB_ORDER.map((key): SheetRequest => ({
+      updateSheetProperties: {
+        properties: {
+          sheetId: ids[key],
+          tabColorStyle: color(TAB_COLORS[key]),
+          hidden: key === 'data',
+          gridProperties: { hideGridlines: true },
+        },
+        fields: 'tabColorStyle,hidden,gridProperties.hideGridlines',
+      },
+    })),
+
+    // Lançamentos: linhas listradas, filtro no cabeçalho e a coluna ID escondida.
+    {
+      addBanding: {
+        bandedRange: {
+          range: grid(transactions, null, [0, 11]),
+          rowProperties: {
+            headerColorStyle: color(THEME.card),
+            firstBandColorStyle: color(THEME.background),
+            secondBandColorStyle: color(THEME.card),
+          },
+        },
+      },
+    },
+    { setBasicFilter: { filter: { range: grid(transactions, null, [0, 11]) } } },
+    {
+      updateDimensionProperties: {
+        range: { sheetId: transactions, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 },
+        properties: { hiddenByUser: true },
+        fields: 'hiddenByUser',
+      },
+    },
+    conditionalText(grid(transactions, [1, 100_000], [10, 11]), notBlank(), THEME.amber),
+
+    // Resumo: valores negativos (sobra, livre) em vermelho.
+    conditionalText(grid(summary, [1, 8], [1, 2]), numberLess(0), THEME.red),
+    conditionalText(grid(summary, [1, 25], [4, 12]), numberLess(0), THEME.red),
+    // Categorias: % do orçamento em âmbar a partir de 80% e vermelho acima de 100%.
+    conditionalText(grid(categories, [1, 12], [5, 6]), numberAtLeast(0.8), THEME.amber, true),
+    conditionalText(grid(categories, [1, 12], [5, 6]), numberGreater(1), THEME.red, true),
+
+    ...dashboardFormatRequests(ids.dashboard),
+  ];
+}
+
+function notBlank(): sheets_v4.Schema$BooleanCondition {
+  return { type: 'NOT_BLANK' };
+}
+
+function numberLess(value: number): sheets_v4.Schema$BooleanCondition {
+  return { type: 'NUMBER_LESS', values: [{ userEnteredValue: toLocaleNumber(value) }] };
+}
+
+function numberGreater(value: number): sheets_v4.Schema$BooleanCondition {
+  return { type: 'NUMBER_GREATER', values: [{ userEnteredValue: toLocaleNumber(value) }] };
+}
+
+function numberAtLeast(value: number): sheets_v4.Schema$BooleanCondition {
+  return { type: 'NUMBER_GREATER_THAN_EQ', values: [{ userEnteredValue: toLocaleNumber(value) }] };
+}
+
 /**
  * Abas calculadas pelo bot e as colunas ID/Origem/Status dos lançamentos: editar mostra
- * um aviso ("Tem certeza?"). Só na criação, para não duplicar proteções.
+ * um aviso ("Tem certeza?"). Só na criação, para não duplicar proteções. No Painel, a
+ * célula do mês fica livre (trocar o mês não pede confirmação).
  */
 export function protectionRequests(ids: TabIds, created: readonly TabKey[]): SheetRequest[] {
   const requests: SheetRequest[] = READ_ONLY_TABS.filter((key) => created.includes(key)).map(
@@ -149,6 +285,11 @@ export function protectionRequests(ids: TabIds, created: readonly TabKey[]): She
           range: { sheetId: ids[key] },
           description: 'Calculada pelo bot: alterações aqui são sobrescritas.',
           warningOnly: true,
+          ...(key === 'dashboard'
+            ? {
+                unprotectedRanges: [grid(ids.dashboard, [PANEL.title - 1, PANEL.title], [7, 9])],
+              }
+            : {}),
         },
       },
     }),
@@ -192,12 +333,13 @@ function listValidation(
   };
 }
 
-/** Listas de seleção nas colunas Tipo, Categoria, Forma e Cartão/Conta. */
+/** Listas de seleção nas colunas Tipo, Categoria (com emoji), Forma e Cartão/Conta. */
 export function validationRequests(ids: TabIds, accountLabels: readonly string[]): SheetRequest[] {
   const rows: [number, number] = [1, 100_000];
+  const categories = (Object.keys(CATEGORY_LABELS) as Category[]).map(categoryLabelWithIcon);
   return [
     listValidation(grid(ids.transactions, rows, [2, 3]), Object.values(TYPE_LABELS)),
-    listValidation(grid(ids.transactions, rows, [4, 5]), Object.values(CATEGORY_LABELS)),
+    listValidation(grid(ids.transactions, rows, [4, 5]), categories),
     listValidation(grid(ids.transactions, rows, [7, 8]), Object.values(PAYMENT_METHOD_LABELS)),
     ...(accountLabels.length > 0
       ? [listValidation(grid(ids.transactions, rows, [8, 9]), accountLabels)]
@@ -205,134 +347,8 @@ export function validationRequests(ids: TabIds, accountLabels: readonly string[]
   ];
 }
 
-function source(range: sheets_v4.Schema$GridRange): sheets_v4.Schema$ChartData {
-  return { sourceRange: { sources: [range] } };
-}
-
-function position(
-  chartsTab: number,
-  row: number,
-  column: number,
-): sheets_v4.Schema$EmbeddedObjectPosition {
-  return {
-    overlayPosition: {
-      anchorCell: { sheetId: chartsTab, rowIndex: row, columnIndex: column },
-      widthPixels: 620,
-      heightPixels: 360,
-    },
-  };
-}
-
-function basicChart(
-  title: string,
-  chartType: 'COLUMN' | 'LINE',
-  domain: sheets_v4.Schema$GridRange,
-  series: sheets_v4.Schema$GridRange[],
-  stacked = false,
-): sheets_v4.Schema$ChartSpec {
-  return {
-    title,
-    basicChart: {
-      chartType,
-      legendPosition: 'BOTTOM_LEGEND',
-      headerCount: 1,
-      ...(stacked ? { stackedType: 'STACKED' } : {}),
-      domains: [{ domain: source(domain) }],
-      series: series.map((range) => ({ series: source(range), targetAxis: 'LEFT_AXIS' })),
-    },
-  };
-}
-
-function pieChart(
-  title: string,
-  domain: sheets_v4.Schema$GridRange,
-  series: sheets_v4.Schema$GridRange,
-): sheets_v4.Schema$ChartSpec {
-  return {
-    title,
-    pieChart: {
-      legendPosition: 'RIGHT_LEGEND',
-      pieHole: 0.4,
-      domain: source(domain),
-      series: source(series),
-    },
-  };
-}
-
-/**
- * Recria os gráficos da aba Gráficos. Só é chamado quando a planilha é nova ou quando
- * muda o número de cartões com fatura (cada cartão é uma série do gráfico de faturas).
- */
-export function chartRequests(
-  ids: TabIds,
-  existingChartIds: readonly number[],
-  cardsWithInvoices: number,
-): SheetRequest[] {
-  const { summary, categories, cards, investments, charts } = ids;
-  const helper = (column: number) => grid(summary, [0, 13], [column, column + 1]);
-  const specs: [sheets_v4.Schema$ChartSpec, number, number][] = [
-    [
-      pieChart(
-        'Gastos por categoria (mês atual)',
-        grid(categories, [1, 12], [0, 1]),
-        grid(categories, [1, 12], [1, 2]),
-      ),
-      0,
-      0,
-    ],
-    [
-      basicChart('Receitas × despesas × investido (12 meses)', 'COLUMN', helper(13), [
-        helper(14),
-        helper(15),
-        helper(17),
-      ]),
-      0,
-      7,
-    ],
-    [
-      basicChart('Sobra e investido acumulado (12 meses)', 'LINE', helper(13), [
-        helper(16),
-        helper(18),
-      ]),
-      19,
-      0,
-    ],
-    [
-      pieChart(
-        'Investimentos por destino',
-        grid(investments, [1, 1 + MAX_INVESTMENT_ROWS], [0, 1]),
-        grid(investments, [1, 1 + MAX_INVESTMENT_ROWS], [3, 4]),
-      ),
-      38,
-      0,
-    ],
-  ];
-  if (cardsWithInvoices > 0) {
-    const invoiceRows: [number, number] = [1, 2 + INVOICE_ROWS];
-    specs.push([
-      basicChart(
-        'Faturas por cartão (com parcelas futuras)',
-        'COLUMN',
-        grid(cards, invoiceRows, [0, 1]),
-        Array.from({ length: cardsWithInvoices }, (_, i) =>
-          grid(cards, invoiceRows, [1 + i, 2 + i]),
-        ),
-        true,
-      ),
-      19,
-      7,
-    ]);
-  }
-
-  return [
-    ...existingChartIds.map((objectId): SheetRequest => ({ deleteEmbeddedObject: { objectId } })),
-    ...specs.map(([spec, row, column]): SheetRequest => ({
-      addChart: { chart: { spec, position: position(charts, row, column) } },
-    })),
-  ];
-}
-
-const MIN_COLUMN_PX = 60;
+/** Mínimo com folga para a setinha das listas de seleção (Tipo, Forma...). */
+const MIN_COLUMN_PX = 96;
 const MAX_COLUMN_PX = 360;
 /** A coluna ID (UUID) só existe para o bot; não precisa aparecer inteira. */
 const ID_COLUMN_PX = 80;
@@ -351,7 +367,7 @@ export function columnWidthRequests(ids: TabIds, data: readonly RangeValues[]): 
   for (const { range, values } of data) {
     const match = /^'(.+)'!([A-Z]+)/.exec(range);
     const key = match?.[1] ? keyByTitle.get(match[1]) : undefined;
-    if (!match?.[2] || !key || key === 'charts') continue;
+    if (!match?.[2] || !key || key === 'dashboard' || key === 'data') continue;
     if (values.length === 1 && values[0]?.length === 1) continue;
     const start = columnIndex(match[2]);
 
@@ -375,10 +391,10 @@ export function columnWidthRequests(ids: TabIds, data: readonly RangeValues[]): 
   }));
 }
 
-/** ~7,5 px por caractere na fonte padrão (Arial 10), mais a margem da célula. */
+/** ~8 px por caractere na Inter 10 (emojis já contam 2 no .length), mais a margem e o filtro. */
 function estimatePx(cell: Cell): number {
   const chars = typeof cell === 'number' ? currencyLength(cell) : (cell ?? '').length;
-  return Math.min(MAX_COLUMN_PX, Math.max(MIN_COLUMN_PX, Math.ceil(chars * 7.5) + 24));
+  return Math.min(MAX_COLUMN_PX, Math.max(MIN_COLUMN_PX, Math.ceil(chars * 8) + 32));
 }
 
 /** Tamanho de "R$ 1.234,56" (números são valores em R$ ou datas, que são menores). */

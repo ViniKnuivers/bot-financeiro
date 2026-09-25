@@ -145,9 +145,12 @@ function text(cell: unknown): string {
   return '';
 }
 
-/** Rótulo em português ou o nome interno ("Alimentação" ou "ALIMENTACAO"). */
+/**
+ * Rótulo em português ou o nome interno ("Alimentação" ou "ALIMENTACAO"), com ou sem o
+ * emoji que a planilha mostra na frente ("🍔 Alimentação").
+ */
 function fromLabel<K extends string>(labels: Record<K, string>, cell: unknown): K | null {
-  const wanted = normalizeName(text(cell));
+  const wanted = normalizeName(text(cell).replace(/^[^\p{L}\p{N}]+/u, ''));
   if (!wanted) return null;
   const entries = Object.entries(labels) as [K, string][];
   return (

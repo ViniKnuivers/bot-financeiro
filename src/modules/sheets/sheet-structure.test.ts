@@ -7,7 +7,8 @@ const ids: TabIds = {
   categories: 3,
   cards: 4,
   investments: 5,
-  charts: 6,
+  dashboard: 6,
+  data: 7,
 };
 
 function widths(requests: ReturnType<typeof columnWidthRequests>) {
@@ -28,10 +29,10 @@ describe('columnWidthRequests', () => {
         ],
       },
     ]);
-    // "set/2026" (8) → 84 px; "Investido no mês" (16) → 144 px.
+    // "set/2026" (8) → 96 px; "Investido no mês" (16) → 160 px.
     expect(widths(requests)).toEqual([
-      [2, 3, 84],
-      [2, 4, 144],
+      [2, 3, 96],
+      [2, 4, 160],
     ]);
   });
 
@@ -40,10 +41,10 @@ describe('columnWidthRequests', () => {
       { range: "'Categorias'!A1:A3", values: [['X'], [-12345.67]] },
     ]);
     // "-R$ 12.345,67" = 13 caracteres.
-    expect(widths(requests)).toEqual([[3, 0, 122]]);
+    expect(widths(requests)).toEqual([[3, 0, 136]]);
   });
 
-  it('coluna ID estreita, títulos soltos e aba de gráficos não mexem na largura', () => {
+  it('coluna ID estreita; títulos soltos, Painel e Dados não mexem na largura', () => {
     const requests = columnWidthRequests(ids, [
       {
         range: "'Lançamentos'!A1:B",
@@ -53,11 +54,12 @@ describe('columnWidthRequests', () => {
         ],
       },
       { range: "'Cartões e vales'!A1", values: [['Faturas por mês (inclui parcelas futuras)']] },
-      { range: "'Gráficos'!A1:A2", values: [['qualquer coisa'], ['x']] },
+      { range: "'Painel'!A1:A2", values: [['qualquer coisa'], ['x']] },
+      { range: "'Dados'!A1:A2", values: [['qualquer coisa'], ['x']] },
     ]);
     expect(widths(requests)).toEqual([
       [1, 0, 80],
-      [1, 1, 114],
+      [1, 1, 128],
     ]);
   });
 
