@@ -13,7 +13,8 @@ import {
   TABS,
   type TabKey,
 } from './sheet-layout.js';
-import type { SheetRequest, SheetTab } from './spreadsheet-gateway.js';
+import type { Cell } from './sheet-content.js';
+import type { RangeValues, SheetRequest, SheetTab } from './spreadsheet-gateway.js';
 
 export type TabIds = Record<TabKey, number>;
 
@@ -331,13 +332,64 @@ export function chartRequests(
   ];
 }
 
-/** Ajusta a largura das colunas ao conteúdo (depois de escrever os valores). */
-export function autoResizeRequests(ids: TabIds): SheetRequest[] {
-  return (['transactions', 'summary', 'categories', 'cards', 'investments'] as const).map(
-    (key) => ({
-      autoResizeDimensions: {
-        dimensions: { sheetId: ids[key], dimension: 'COLUMNS', startIndex: 0, endIndex: 20 },
-      },
-    }),
+const MIN_COLUMN_PX = 60;
+const MAX_COLUMN_PX = 360;
+/** A coluna ID (UUID) só existe para o bot; não precisa aparecer inteira. */
+const ID_COLUMN_PX = 80;
+
+/**
+ * Largura de cada coluna escrita, estimada pelo texto mais longo dela. O ajuste automático
+ * do Google (autoResizeDimensions) corta cabeçalhos em negrito e valores em R$.
+ * Títulos soltos (faixas de uma célula só) não alargam a coluna: podem transbordar.
+ */
+export function columnWidthRequests(ids: TabIds, data: readonly RangeValues[]): SheetRequest[] {
+  const keyByTitle = new Map<string, TabKey>(
+    Object.entries(TABS).map(([key, title]) => [title, key as TabKey]),
   );
+  const widths = new Map<string, { sheetId: number; column: number; px: number }>();
+
+  for (const { range, values } of data) {
+    const match = /^'(.+)'!([A-Z]+)/.exec(range);
+    const key = match?.[1] ? keyByTitle.get(match[1]) : undefined;
+    if (!match?.[2] || !key || key === 'charts') continue;
+    if (values.length === 1 && values[0]?.length === 1) continue;
+    const start = columnIndex(match[2]);
+
+    for (const row of values) {
+      row.forEach((cell, offset) => {
+        const column = start + offset;
+        const px = key === 'transactions' && column === 0 ? ID_COLUMN_PX : estimatePx(cell);
+        const id = `${ids[key]}:${column}`;
+        const current = widths.get(id);
+        if (!current || px > current.px) widths.set(id, { sheetId: ids[key], column, px });
+      });
+    }
+  }
+
+  return [...widths.values()].map(({ sheetId, column, px }) => ({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: 'COLUMNS', startIndex: column, endIndex: column + 1 },
+      properties: { pixelSize: px },
+      fields: 'pixelSize',
+    },
+  }));
+}
+
+/** ~7,5 px por caractere na fonte padrão (Arial 10), mais a margem da célula. */
+function estimatePx(cell: Cell): number {
+  const chars = typeof cell === 'number' ? currencyLength(cell) : (cell ?? '').length;
+  return Math.min(MAX_COLUMN_PX, Math.max(MIN_COLUMN_PX, Math.ceil(chars * 7.5) + 24));
+}
+
+/** Tamanho de "R$ 1.234,56" (números são valores em R$ ou datas, que são menores). */
+function currencyLength(value: number): number {
+  const digits = Math.trunc(Math.abs(value)).toString().length;
+  return 'R$ '.length + digits + Math.floor((digits - 1) / 3) + ',00'.length + (value < 0 ? 1 : 0);
+}
+
+/** "A" → 0, "Z" → 25, "AA" → 26. */
+function columnIndex(letters: string): number {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + letters.charCodeAt(i) - 64;
+  return n - 1;
 }

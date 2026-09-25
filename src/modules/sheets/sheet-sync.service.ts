@@ -22,8 +22,8 @@ import {
 } from './sheet-content.js';
 import { SUMMARY_MONTHS, TABS, type TabKey } from './sheet-layout.js';
 import {
-  autoResizeRequests,
   chartRequests,
+  columnWidthRequests,
   createTabsRequests,
   formattingRequests,
   missingTabs,
@@ -243,7 +243,9 @@ export class SheetSyncService {
       pendingRows: imported.pendingRows,
     });
     await this.deps.gateway.replaceValues(content.clearRanges, content.data);
-    if (this.ids) await this.deps.gateway.batchUpdate(autoResizeRequests(this.ids));
+    if (this.ids) {
+      await this.deps.gateway.batchUpdate(columnWidthRequests(this.ids, content.data));
+    }
     await this.deps.snapshots.replaceAll(
       new Map(data.transactions.map((t) => [t.id, hashFields(fieldsOf(t))])),
     );
