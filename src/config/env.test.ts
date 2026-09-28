@@ -65,6 +65,11 @@ describe('loadEnv', () => {
     });
   });
 
+  it('espaços colados ao copiar as chaves são ignorados', () => {
+    const env = loadEnv({ ...validEnv, ...whatsapp, WHATSAPP_APP_SECRET: ' segredo ' });
+    expect(env.whatsapp?.appSecret).toBe('segredo');
+  });
+
   it('WhatsApp pela metade: aponta o que falta', () => {
     const { WHATSAPP_APP_SECRET: _, ...partial } = whatsapp;
     expect(() => loadEnv({ ...validEnv, ...partial })).toThrow(/WHATSAPP_APP_SECRET/);
@@ -73,6 +78,12 @@ describe('loadEnv', () => {
   it('só o verify token preenchido (gerado de antemão) não liga nem quebra nada', () => {
     const env = loadEnv({ ...validEnv, WHATSAPP_VERIFY_TOKEN: 'gerado-antes-123' });
     expect(env.whatsapp).toBeNull();
+  });
+
+  it('WHATSAPP_ENABLED=false pausa o WhatsApp sem apagar as chaves', () => {
+    const env = loadEnv({ ...validEnv, ...whatsapp, WHATSAPP_ENABLED: 'false' });
+    expect(env.whatsapp).toBeNull();
+    expect(env.telegram).not.toBeNull();
   });
 
   it('Telegram pela metade também é erro', () => {

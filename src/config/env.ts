@@ -23,13 +23,22 @@ const envSchema = z.object({
   ALLOWED_TELEGRAM_USER_ID: optional(z.coerce.number().int().positive()),
 
   // WhatsApp Cloud API (opcional; veja "WhatsApp" no README).
-  WHATSAPP_ACCESS_TOKEN: optional(z.string().min(1)),
-  WHATSAPP_PHONE_NUMBER_ID: optional(z.string().regex(/^\d+$/, 'só números')),
-  WHATSAPP_APP_SECRET: optional(z.string().min(1)),
-  WHATSAPP_VERIFY_TOKEN: optional(z.string().min(8)),
+  // "false" pausa o canal sem apagar as chaves (ex.: enquanto não há número brasileiro).
+  WHATSAPP_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  // trim: um espaço colado ao copiar ("CHAVE= valor") quebraria a assinatura e o login.
+  WHATSAPP_ACCESS_TOKEN: optional(z.string().trim().min(1)),
+  WHATSAPP_PHONE_NUMBER_ID: optional(z.string().trim().regex(/^\d+$/, 'só números')),
+  WHATSAPP_APP_SECRET: optional(z.string().trim().min(1)),
+  WHATSAPP_VERIFY_TOKEN: optional(z.string().trim().min(8)),
   // Seu número com DDI e DDD, só dígitos (ex.: 5511999998888).
   ALLOWED_WHATSAPP_NUMBER: optional(
-    z.string().regex(/^\d{10,15}$/, 'só dígitos, com DDI e DDD (ex.: 5511999998888)'),
+    z
+      .string()
+      .trim()
+      .regex(/^\d{10,15}$/, 'só dígitos, com DDI e DDD (ex.: 5511999998888)'),
   ),
   WHATSAPP_GRAPH_VERSION: z
     .string()
@@ -103,12 +112,12 @@ const configSchema = envSchema
     const attempted = WHATSAPP_REQUIRED.some(
       (key) => key !== 'WHATSAPP_VERIFY_TOKEN' && env[key] !== undefined,
     );
-    if (attempted && missing.length > 0) {
+    if (env.WHATSAPP_ENABLED && attempted && missing.length > 0) {
       for (const key of missing) {
         ctx.addIssue({ code: 'custom', path: [key], message: 'faltando para ligar o WhatsApp' });
       }
     }
-    if (telegramCount < 2 && missing.length > 0) {
+    if (telegramCount < 2 && (missing.length > 0 || !env.WHATSAPP_ENABLED)) {
       ctx.addIssue({
         code: 'custom',
         path: ['TELEGRAM_BOT_TOKEN'],
@@ -131,6 +140,7 @@ const configSchema = envSchema
         ? { token: env.TELEGRAM_BOT_TOKEN, allowedUserId: env.ALLOWED_TELEGRAM_USER_ID }
         : null,
     whatsapp:
+      env.WHATSAPP_ENABLED &&
       env.WHATSAPP_ACCESS_TOKEN !== undefined &&
       env.WHATSAPP_PHONE_NUMBER_ID !== undefined &&
       env.WHATSAPP_APP_SECRET !== undefined &&

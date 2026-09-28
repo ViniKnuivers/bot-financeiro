@@ -42,7 +42,7 @@ const COMMANDS: Record<string, Command> = {
 export interface WhatsAppChannelOptions {
   api: WhatsAppApi;
   handler: MessageHandler;
-  /** Seu número (só dígitos). As respostas vão sempre para ele. */
+  /** Seu número (só dígitos). Só ele é atendido. */
   allowedNumber: string;
   window: WhatsAppWindow;
   usage: WhatsAppUsage;
@@ -93,14 +93,14 @@ export class WhatsAppChannel implements MessageChannel {
    * guardada e sai um modelo "Você tem N aviso(s) [Ver]" (só um enquanto houver fila).
    */
   async notify(message: OutgoingMessage): Promise<void> {
-    const { window, api, noticeTemplate, allowedNumber, usage } = this.options;
+    const { window, api, noticeTemplate, usage } = this.options;
     if (await window.isOpen()) {
       await this.deliver(message);
       return;
     }
     const pending = await window.enqueue(message);
     if (pending > 1) return;
-    await api.sendTemplate(allowedNumber, {
+    await api.sendTemplate(await this.recipient(), {
       name: noticeTemplate.name,
       language: noticeTemplate.language,
       bodyParameters: [String(pending)],
@@ -119,6 +119,7 @@ export class WhatsAppChannel implements MessageChannel {
     this.remember(message.id);
 
     // Qualquer mensagem sua reabre a janela: os avisos guardados saem primeiro.
+    await window.rememberRecipient(message.from);
     await window.touch();
     const queued = await window.drain();
     for (const notice of queued) await this.deliver(notice);
@@ -179,11 +180,17 @@ export class WhatsAppChannel implements MessageChannel {
     }
   }
 
+  /** Para onde responder: o id com que o WhatsApp te identifica (ou o número do .env). */
+  private async recipient(): Promise<string> {
+    return (await this.options.window.recipient()) ?? this.options.allowedNumber;
+  }
+
   /** Envia uma resposta do bot (pode virar várias mensagens) e conta cada uma. */
   private async deliver(message: OutgoingMessage): Promise<void> {
+    const to = await this.recipient();
     for (const outgoing of toWhatsAppMessages(message)) {
       try {
-        await this.options.api.send(this.options.allowedNumber, outgoing);
+        await this.options.api.send(to, outgoing);
       } catch (error) {
         if (error instanceof WhatsAppApiError && error.code === 131030) {
           this.options.logger.error(

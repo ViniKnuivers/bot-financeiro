@@ -4,6 +4,7 @@ import type { OutgoingMessage } from '../message-channel.js';
 
 const LAST_INBOUND_KEY = 'whatsapp.lastInboundAt';
 const OUTBOX_KEY = 'whatsapp.outbox';
+const RECIPIENT_KEY = 'whatsapp.recipient';
 
 /**
  * Regra da Meta: o bot só manda mensagem livre até 24h depois da sua última mensagem.
@@ -36,6 +37,21 @@ export class WhatsAppWindow {
   async isOpen(): Promise<boolean> {
     const last = await this.jobState.get(LAST_INBOUND_KEY);
     return last !== null && this.now().getTime() - new Date(last).getTime() < WINDOW_MS;
+  }
+
+  /**
+   * O identificador com que o WhatsApp entrega suas mensagens (o "wa_id"). As respostas
+   * vão para ele, e não para o número digitado no .env: em celulares brasileiros, o
+   * WhatsApp às vezes usa o número sem o 9º dígito, e a Meta só entrega para o wa_id.
+   */
+  async rememberRecipient(waId: string): Promise<void> {
+    if ((await this.jobState.get(RECIPIENT_KEY)) !== waId) {
+      await this.jobState.set(RECIPIENT_KEY, waId);
+    }
+  }
+
+  async recipient(): Promise<string | null> {
+    return this.jobState.get(RECIPIENT_KEY);
   }
 
   /** Guarda um aviso para depois e devolve quantos estão esperando. */

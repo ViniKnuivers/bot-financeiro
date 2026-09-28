@@ -334,11 +334,21 @@ Dá para conversar com o bot também pelo WhatsApp, usando a **API oficial da Me
 de programas "piratas", que podem banir o número). Telegram e WhatsApp funcionam juntos,
 com os mesmos dados, e você pode ligar só um deles ou os dois.
 
+> ⚠️ **No Brasil, é preciso um número brasileiro (+55) para o bot.** O número de teste
+> gratuito da Meta é americano (+1 555), e desde setembro de 2025 a Meta bloqueia
+> mensagens de empresas de fora do Brasil para usuários no Brasil. O bot recebe suas
+> mensagens, mas as respostas não chegam: nos registros aparece o erro **130497**
+> ("Business account is restricted from messaging users in this country"). Não há
+> exceção para o número de teste. Por isso, para usar o WhatsApp no Brasil você precisa de
+> um **chip pré-pago só para o bot**, cadastrado na Meta. O número de teste serve apenas
+> para conferir a configuração.
+
 **Antes de decidir, saiba das diferenças:**
 
-- **Número:** o bot usa o **número de teste gratuito** da Meta, sem chip. Ele só conversa
-  com até 5 números que você cadastra (o seu basta). Seu número pessoal não serve, porque
-  você não conseguiria conversar com você mesmo.
+- **Número:** um número só do bot. Seu número pessoal não serve, porque você não
+  conseguiria conversar com você mesmo, e o número do bot não pode estar em uso no app do
+  WhatsApp. A Meta pode pedir um cartão cadastrado na conta, mesmo dentro das mensagens
+  grátis.
 - **Custo:** desde 01/10/2026 a Meta cobra também as respostas do bot, com **1.000
   mensagens grátis por mês**. Com uso pessoal normal, você fica dentro das grátis. Ao chegar
   em 900 no mês, o bot avisa para você usar o Telegram até o mês virar. No Telegram, tudo é
@@ -405,11 +415,26 @@ docker compose --profile app --profile whatsapp up -d --build
    - botão de **resposta rápida**: `Ver`.
      A aprovação costuma levar de minutos a algumas horas.
 
-Pronto: mande "oi" para o número de teste no WhatsApp.
+Pronto: mande "oi" para o número do bot no WhatsApp (no Brasil, o número +55; veja o aviso no começo desta seção).
 
-**Quer um número próprio depois?** Um chip pré-pago serve. Ele não pode estar em uso no
-app do WhatsApp. Cadastre-o no app da Meta, crie o modelo de novo para ele e troque
-`WHATSAPP_PHONE_NUMBER_ID` no `.env`. Todo o resto continua igual.
+**Número brasileiro (necessário no Brasil):** com o chip em mãos, no app da Meta, vá em
+**Casos de uso → Personalizar → Etapa 2. Configuração da produção** e cadastre o número
+(a confirmação chega por SMS ou ligação). Depois, crie o modelo `avisos_pendentes` de novo
+para esse número e troque `WHATSAPP_PHONE_NUMBER_ID` no `.env`. Todo o resto continua igual.
+
+**A Meta recebeu sua mensagem, mas o bot não respondeu?** Veja os registros do bot
+(`docker compose logs app`). Se o WhatsApp recusar uma resposta, aparece
+"a Meta não entregou uma mensagem do bot" com o motivo.
+
+**Se nenhuma mensagem chega ao bot**, falta ligar a conta do WhatsApp ao seu app. Troque
+os valores entre `<>` e rode uma vez:
+
+```bash
+curl -X POST -H "Authorization: Bearer <WHATSAPP_ACCESS_TOKEN>" https://graph.facebook.com/v25.0/<ID_DA_CONTA_DO_WHATSAPP_BUSINESS>/subscribed_apps
+```
+
+**Pausar o WhatsApp** sem apagar as chaves: coloque `WHATSAPP_ENABLED=false` no `.env` e
+ligue o bot sem o perfil do WhatsApp (`docker compose --profile app up -d`).
 
 ## Deixar ligado o tempo todo
 

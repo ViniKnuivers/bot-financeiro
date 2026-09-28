@@ -179,6 +179,17 @@ describe('WhatsAppChannel: conversa', () => {
 
     expect(h.handleText).toHaveBeenCalledOnce();
     expect(api.sent).toHaveLength(1);
+    // A resposta vai para o id com que o WhatsApp entregou (sem o 9), não para o .env.
+    expect(api.sent[0]?.to).toBe('551199998888');
+  });
+
+  it('avisos também vão para o último id visto, mesmo depois de reiniciar o bot', async () => {
+    const first = setup();
+    await first.receive(first.incoming({ kind: 'text', text: 'oi', from: '551199998888' }));
+    await first.channel.notify({ text: 'aviso' });
+
+    expect(first.api.sent.at(-1)?.to).toBe('551199998888');
+    expect(first.jobState.values.get('whatsapp.recipient')).toBe('551199998888');
   });
 
   it('a mesma mensagem reenviada pela Meta é processada uma vez só', async () => {

@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import { describe, expect, it, vi } from 'vitest';
 import {
   isValidSignature,
+  parseFailedDeliveries,
   parseWebhook,
   registerWhatsAppWebhook,
   WEBHOOK_PATH,
@@ -108,6 +109,38 @@ describe('parseWebhook', () => {
     expect(parseWebhook({ entry: [{ changes: [{ value: { messages: [{ oi: 1 }] } }] }] })).toEqual(
       [],
     );
+  });
+});
+
+describe('parseFailedDeliveries', () => {
+  it('lê o motivo quando a Meta não entrega uma mensagem do bot', () => {
+    const body = envelope({});
+    body.entry[0]!.changes[0]!.value = {
+      statuses: [
+        { id: 'wamid.a', status: 'delivered', recipient_id: '551199998888' },
+        {
+          id: 'wamid.b',
+          status: 'failed',
+          recipient_id: '5511999998888',
+          errors: [
+            {
+              code: 131030,
+              title: 'Recipient phone number not in allowed list',
+              error_data: { details: 'Recipient phone number not in allowed list' },
+            },
+          ],
+        },
+      ],
+    } as never;
+
+    expect(parseFailedDeliveries(body)).toEqual([
+      {
+        recipient: '5511999998888',
+        code: 131030,
+        reason: 'Recipient phone number not in allowed list',
+      },
+    ]);
+    expect(parseFailedDeliveries('lixo')).toEqual([]);
   });
 });
 

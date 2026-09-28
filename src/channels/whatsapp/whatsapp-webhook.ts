@@ -61,7 +61,10 @@ const webhookSchema = z.looseObject({
         changes: z
           .array(
             z.looseObject({
-              value: z.looseObject({ messages: z.array(z.unknown()).optional() }),
+              value: z.looseObject({
+                messages: z.array(z.unknown()).optional(),
+                statuses: z.array(z.unknown()).optional(),
+              }),
             }),
           )
           .default([]),
@@ -96,6 +99,51 @@ export function parseWebhook(body: unknown): IncomingWhatsApp[] {
     if (actionId) return [{ ...base, kind: 'action', actionId }];
     return [{ ...base, kind: 'unsupported', type: m.type }];
   });
+}
+
+const statusSchema = z.looseObject({
+  status: z.string(),
+  recipient_id: z.string().optional(),
+  errors: z
+    .array(
+      z.looseObject({
+        code: z.number().optional(),
+        title: z.string().optional(),
+        error_data: z.looseObject({ details: z.string().optional() }).optional(),
+      }),
+    )
+    .optional(),
+});
+
+/** Uma mensagem do bot que a Meta aceitou mas não conseguiu entregar. */
+export interface FailedDelivery {
+  recipient: string | null;
+  code: number | null;
+  reason: string;
+}
+
+/**
+ * A Meta aceita o envio na hora e só depois avisa, num aviso de status, se não conseguiu
+ * entregar (ex.: número fora da lista de teste, janela de 24h fechada). Sem ler isso, a
+ * mensagem some sem nenhum erro.
+ */
+export function parseFailedDeliveries(body: unknown): FailedDelivery[] {
+  const parsed = webhookSchema.safeParse(body);
+  if (!parsed.success) return [];
+  return parsed.data.entry
+    .flatMap((entry) => entry.changes.flatMap((change) => change.value.statuses ?? []))
+    .flatMap((item): FailedDelivery[] => {
+      const status = statusSchema.safeParse(item);
+      if (!status.success || status.data.status !== 'failed') return [];
+      const error = status.data.errors?.[0];
+      return [
+        {
+          recipient: status.data.recipient_id ?? null,
+          code: error?.code ?? null,
+          reason: error?.error_data?.details ?? error?.title ?? 'motivo não informado',
+        },
+      ];
+    });
 }
 
 export interface WhatsAppWebhookOptions {
@@ -151,6 +199,9 @@ export function registerWhatsAppWebhook(app: FastifyInstance, options: WhatsAppW
       }
       // Responde já: se demorar, a Meta reenvia o mesmo aviso.
       await reply.code(200).send();
+      for (const failure of parseFailedDeliveries(body)) {
+        options.logger.error(failure, 'whatsapp: a Meta não entregou uma mensagem do bot');
+      }
       const messages = parseWebhook(body);
       if (messages.length > 0) options.onMessages(messages);
     });
