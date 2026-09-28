@@ -2,7 +2,14 @@ import { GoogleGenAI } from '@google/genai';
 import type { FastifyServerOptions } from 'fastify';
 import { GeminiTransactionParser } from './ai/gemini-transaction-parser.js';
 import { Assistant } from './assistant/assistant.js';
+import { BroadcastNotifier } from './channels/broadcast-notifier.js';
+import type { MessageChannel } from './channels/message-channel.js';
 import { TelegramChannel } from './channels/telegram/telegram-channel.js';
+import { GraphWhatsAppApi } from './channels/whatsapp/whatsapp-api.js';
+import { WhatsAppChannel } from './channels/whatsapp/whatsapp-channel.js';
+import { WhatsAppUsage } from './channels/whatsapp/whatsapp-usage.js';
+import { registerWhatsAppWebhook } from './channels/whatsapp/whatsapp-webhook.js';
+import { WhatsAppWindow } from './channels/whatsapp/whatsapp-window.js';
 import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
 import { monthlyReportJob } from './jobs/monthly-report.job.js';
@@ -64,7 +71,7 @@ async function main(): Promise<void> {
     try {
       scheduler.stop();
       sheets?.stop();
-      await channel.stop();
+      for (const channel of channels) await channel.stop();
       await app.close();
     } catch (error) {
       app.log.error({ err: error }, 'erro ao encerrar');
@@ -86,8 +93,8 @@ async function main(): Promise<void> {
   const budgets = new BudgetService(new PrismaBudgetRepository(prisma));
   const jobState = new PrismaJobStateRepository(prisma);
 
-  // Planilha Google (opcional). As mensagens de falha vão para o chat, que é criado
-  // mais abaixo: por isso o envio chama `channel` só na hora de avisar.
+  // Planilha Google (opcional). As mensagens de falha vão para os chats, que são criados
+  // mais abaixo: por isso o envio chama `notifier` só na hora de avisar.
   const sheets = createSheetSync({
     env,
     logger: app.log,
@@ -100,7 +107,7 @@ async function main(): Promise<void> {
       transactionService: transactions,
       snapshots: new PrismaSheetSnapshotRepository(prisma),
       trash: new PrismaTrashRepository(prisma),
-      notify: (message) => channel.notify(message),
+      notify: (message) => notifier.notify(message),
       logger: app.log,
       today,
       timeZone: env.APP_TIMEZONE,
@@ -127,16 +134,53 @@ async function main(): Promise<void> {
     ...(sheets ? { sheets } : {}),
   });
 
-  const channel = new TelegramChannel({
-    token: env.TELEGRAM_BOT_TOKEN,
-    allowedUserId: env.ALLOWED_TELEGRAM_USER_ID,
-    handler: assistant,
-    logger: app.log,
-    onFatalError: (error) => {
-      app.log.fatal({ err: error }, 'telegram: polling interrompido');
-      void shutdown('telegram-fatal', 1);
-    },
-  });
+  // Canais ligados no .env (pelo menos um; os dois podem funcionar juntos).
+  const channels: MessageChannel[] = [];
+  if (env.telegram) {
+    channels.push(
+      new TelegramChannel({
+        token: env.telegram.token,
+        allowedUserId: env.telegram.allowedUserId,
+        handler: assistant,
+        logger: app.log,
+        onFatalError: (error) => {
+          app.log.fatal({ err: error }, 'telegram: polling interrompido');
+          void shutdown('telegram-fatal', 1);
+        },
+      }),
+    );
+  }
+  if (env.whatsapp) {
+    const config = env.whatsapp;
+    const whatsapp = new WhatsAppChannel({
+      api: new GraphWhatsAppApi(config),
+      handler: assistant,
+      allowedNumber: config.allowedNumber,
+      window: new WhatsAppWindow(jobState),
+      usage: new WhatsAppUsage({
+        jobState,
+        freeMonthlyMessages: config.freeMonthlyMessages,
+        warnAt: config.usageWarningAt,
+        month: () => today().slice(0, 7),
+        onNearLimit: (text) => notifier.notify({ text }),
+        hasTelegram: env.telegram !== null,
+        logger: app.log,
+      }),
+      noticeTemplate: { name: config.noticeTemplate, language: config.templateLanguage },
+      logger: app.log,
+    });
+    await registerWhatsAppWebhook(app, {
+      verifyToken: config.verifyToken,
+      appSecret: config.appSecret,
+      logger: app.log,
+      onMessages: (messages) => {
+        whatsapp.receive(messages);
+      },
+    });
+    channels.push(whatsapp);
+  }
+  // Avisos do bot (dia 1, gastos fixos, planilha) vão para todos os canais ligados.
+  const notifier = new BroadcastNotifier(channels, app.log);
 
   process.once('SIGINT', (signal) => void shutdown(signal, 0));
   process.once('SIGTERM', (signal) => void shutdown(signal, 0));
@@ -147,14 +191,14 @@ async function main(): Promise<void> {
       recurringJob({
         recurring,
         assistant,
-        notifier: channel,
+        notifier,
         today,
         onChange: () => sheets?.requestSync(),
       }),
       ...(sheets ? [sheetRefreshJob(sheets)] : []),
       monthlyReportJob({
         jobState,
-        notifier: channel,
+        notifier,
         today,
         monthClosedMessage: (month) => assistant.monthClosedMessage(month),
       }),
@@ -164,11 +208,12 @@ async function main(): Promise<void> {
 
   await app.listen({ host: env.HOST, port: env.PORT });
   try {
-    await channel.start();
+    for (const channel of channels) await channel.start();
+    app.log.info({ channels: channels.map((c) => c.name) }, 'canais ligados');
     scheduler.start();
   } catch (error) {
-    app.log.fatal({ err: error }, 'telegram: falha ao iniciar');
-    await shutdown('telegram-start-failed', 1);
+    app.log.fatal({ err: error }, 'canal: falha ao iniciar');
+    await shutdown('channel-start-failed', 1);
   }
 }
 

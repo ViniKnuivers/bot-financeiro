@@ -1,6 +1,7 @@
 # bot-financeiro
 
-Seu assessor financeiro pessoal no Telegram. Você manda uma mensagem, de texto ou de voz,
+Seu assessor financeiro pessoal no Telegram (e, se quiser, também no
+[WhatsApp](#whatsapp-opcional)). Você manda uma mensagem, de texto ou de voz,
 do jeito que falaria, e ele registra seus gastos e receitas, pergunta o que faltar e
 acompanha a fatura do cartão e o saldo do VR/VA.
 
@@ -326,6 +327,89 @@ Como funciona:
 **Aviso do dia 1:** quando o mês vira, o bot manda o resumo do mês que fechou, com a
 planilha e os gráficos já atualizados e os links para abrir. Se o computador estiver
 desligado no dia 1, ele manda assim que ligar.
+
+## WhatsApp (opcional)
+
+Dá para conversar com o bot também pelo WhatsApp, usando a **API oficial da Meta** (nada
+de programas "piratas", que podem banir o número). Telegram e WhatsApp funcionam juntos,
+com os mesmos dados, e você pode ligar só um deles ou os dois.
+
+**Antes de decidir, saiba das diferenças:**
+
+- **Número:** o bot usa o **número de teste gratuito** da Meta, sem chip. Ele só conversa
+  com até 5 números que você cadastra (o seu basta). Seu número pessoal não serve, porque
+  você não conseguiria conversar com você mesmo.
+- **Custo:** desde 01/10/2026 a Meta cobra também as respostas do bot, com **1.000
+  mensagens grátis por mês**. Com uso pessoal normal, você fica dentro das grátis. Ao chegar
+  em 900 no mês, o bot avisa para você usar o Telegram até o mês virar. No Telegram, tudo é
+  grátis e sem limite.
+- **Botões:** até 3 opções aparecem como botões. Mais que isso, como uma lista
+  ("Escolher").
+- **Mensagens não são editadas:** a resposta a um toque chega como mensagem nova.
+- **Comandos:** não há menu de comandos, mas digitar funciona igual (`/resumo`, `/cartoes`...).
+- **Avisos automáticos (dia 1, gastos fixos...):** se você não falou com o bot nas últimas
+  24h, a Meta só permite um modelo aprovado. Chega "📬 Você tem 1 aviso(s)… [Ver]", e ao
+  tocar em **Ver** o bot manda os avisos. Esse modelo também conta no limite.
+
+### 1. App na Meta e número de teste
+
+1. Em [developers.facebook.com](https://developers.facebook.com), vá em **Meus apps → Criar
+   app**. Escolha o caso de uso do WhatsApp e crie ou escolha um portfólio empresarial.
+2. No menu do app, em **WhatsApp → Configuração da API**:
+   - anote o **Phone number ID** do número de teste;
+   - no campo **Para**, adicione o **seu** número de WhatsApp e confirme o código que chega.
+3. Em **Configurações do app → Básico**, copie a **Chave secreta do app**.
+4. O token dessa tela expira em 24h. Para ter um que não expira, vá em
+   [business.facebook.com](https://business.facebook.com) → **Configurações → Usuários →
+   Usuários do sistema**. Crie um (função **Admin**) e, em **Atribuir ativos**, dê controle
+   total do app e da conta do WhatsApp. Depois clique em **Gerar token**: escolha o app,
+   validade **Nunca** e as permissões `whatsapp_business_messaging` e
+   `whatsapp_business_management`.
+
+### 2. Endereço público (ngrok, grátis)
+
+O WhatsApp precisa de um endereço na internet para entregar suas mensagens ao bot, que roda
+no seu computador. Crie uma conta em [ngrok.com](https://ngrok.com) e anote o **Authtoken**
+e o seu **domínio fixo grátis** (em **Domains**, algo como `nome-nome.ngrok-free.app`).
+
+### 3. Preencha o `.env`
+
+```env
+WHATSAPP_ACCESS_TOKEN=token-do-usuário-do-sistema
+WHATSAPP_PHONE_NUMBER_ID=id-do-número-de-teste
+WHATSAPP_APP_SECRET=chave-secreta-do-app
+WHATSAPP_VERIFY_TOKEN=uma-senha-que-você-inventa
+ALLOWED_WHATSAPP_NUMBER=5511999998888
+NGROK_AUTHTOKEN=authtoken-do-ngrok
+NGROK_DOMAIN=nome-nome.ngrok-free.app
+```
+
+`ALLOWED_WHATSAPP_NUMBER` é o seu número com DDI e DDD, só dígitos. Mensagens de qualquer
+outro número são ignoradas.
+
+### 4. Ligue o bot com o WhatsApp
+
+```bash
+docker compose --profile app --profile whatsapp up -d --build
+```
+
+### 5. Conecte o webhook e crie o modelo de avisos
+
+1. No app da Meta, em **WhatsApp → Configuração**, na parte de **Webhook**:
+   - **URL de callback:** `https://SEU-DOMINIO.ngrok-free.app/webhooks/whatsapp`
+   - **Token de verificação:** o mesmo `WHATSAPP_VERIFY_TOKEN` do `.env`
+   - clique em **Verificar e salvar** e, em **Campos do webhook**, assine **messages**.
+2. No **WhatsApp Manager → Modelos de mensagem → Criar modelo**:
+   - categoria **Utilidade**, nome `avisos_pendentes`, idioma **Português (BR)**;
+   - corpo: `📬 Você tem {{1}} aviso(s) novo(s) do seu bot financeiro.` (exemplo: `2`);
+   - botão de **resposta rápida**: `Ver`.
+     A aprovação costuma levar de minutos a algumas horas.
+
+Pronto: mande "oi" para o número de teste no WhatsApp.
+
+**Quer um número próprio depois?** Um chip pré-pago serve. Ele não pode estar em uso no
+app do WhatsApp. Cadastre-o no app da Meta, crie o modelo de novo para ele e troque
+`WHATSAPP_PHONE_NUMBER_ID` no `.env`. Todo o resto continua igual.
 
 ## Deixar ligado o tempo todo
 

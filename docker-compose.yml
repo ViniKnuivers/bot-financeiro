@@ -1,5 +1,6 @@
 # Desenvolvimento:  docker compose up -d db        (só o Postgres; a app roda com `npm run dev`)
 # Tudo em Docker:   docker compose --profile app up -d --build
+# Com WhatsApp:     docker compose --profile app --profile whatsapp up -d --build
 
 # Nome fixo do projeto: sem ele, o Docker usa o nome da pasta, e baixar/renomear a pasta
 # (ex.: "bot-financeiro-main" do ZIP do GitHub) criaria um banco novo e vazio.
@@ -57,6 +58,19 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  # Endereço público para o webhook do WhatsApp (opcional; veja "WhatsApp" no README).
+  # O bot continua no seu computador: o ngrok só repassa o que chega no seu domínio fixo,
+  # e o bot só aceita avisos assinados pela Meta (X-Hub-Signature-256).
+  ngrok:
+    profiles: [whatsapp]
+    image: ngrok/ngrok:3.39.11-alpine
+    restart: unless-stopped
+    command: ['http', 'app:3000', '--url', 'https://${NGROK_DOMAIN:-}']
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    depends_on:
+      - app
 
 volumes:
   pgdata:

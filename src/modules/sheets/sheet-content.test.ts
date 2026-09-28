@@ -72,7 +72,7 @@ describe('buildSheetContent', () => {
       1,
       'Crédito',
       'Santander (crédito)',
-      'Telegram (áudio)',
+      'Chat (áudio)',
       '',
     ]);
   });
