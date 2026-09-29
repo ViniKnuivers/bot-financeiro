@@ -3,6 +3,7 @@ import {
   addMonths,
   closingDate,
   installmentSchedule,
+  invoiceDueDate,
   invoiceMonthFor,
   splitInstallments,
   summarizeCredit,
@@ -112,5 +113,22 @@ describe('summarizeCredit', () => {
     const summary = summarizeCredit({ ...base, adjustmentCents: -45000, purchases: [] });
 
     expect(summary.availableCents).toBe(255000);
+  });
+});
+
+describe('invoiceDueDate', () => {
+  it('vence no mesmo mês quando o vencimento vem depois do fechamento', () => {
+    expect(invoiceDueDate('2026-10', 5, 12)).toBe('2026-10-12');
+  });
+
+  it('vence no mês seguinte quando o vencimento vem antes (ou no dia) do fechamento', () => {
+    expect(invoiceDueDate('2026-10', 25, 5)).toBe('2026-11-05');
+    expect(invoiceDueDate('2026-10', 10, 10)).toBe('2026-11-10');
+  });
+
+  it('dia 31 em fevereiro vira o último dia; dezembro passa para o ano seguinte', () => {
+    expect(invoiceDueDate('2027-01', 20, 31).slice(0, 7)).toBe('2027-01');
+    expect(invoiceDueDate('2027-01', 31, 30)).toBe('2027-02-28');
+    expect(invoiceDueDate('2026-12', 25, 5)).toBe('2027-01-05');
   });
 });

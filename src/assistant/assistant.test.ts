@@ -16,11 +16,14 @@ import {
   InMemoryInvoicePaymentRepository,
   InMemoryPendingRepository,
   InMemoryRecurringRepository,
+  InMemoryReminderRepository,
+  inMemoryJobState,
 } from '../test/in-memory-repositories.js';
 import { InMemoryTransactionRepository } from '../test/in-memory-transaction-repository.js';
 import { BudgetService } from '../modules/budgets/budget.service.js';
 import { InsightsService } from '../modules/insights/insights.service.js';
-import { toDateOnlyString } from '../lib/dates.js';
+import { localHour, toDateOnlyString } from '../lib/dates.js';
+import { ReminderService } from '../modules/reminders/reminder.service.js';
 import { RecurringService } from '../modules/recurring/recurring.service.js';
 import { ReportService } from '../modules/reports/report.service.js';
 import { CHAT_STATE_TTL_MS } from './conversation-state.js';
@@ -47,6 +50,7 @@ function result(overrides: Partial<ParseResult>): ParseResult {
     intent: 'register',
     transactions: [],
     query: null,
+    reminder: null,
     transcript: null,
     reply: 'ok',
     ...overrides,
@@ -72,6 +76,8 @@ function setup() {
   const recurringRepository = new InMemoryRecurringRepository();
   const recurring = new RecurringService(recurringRepository, transactionService);
   const budgetService = new BudgetService(budgets);
+  const reminderRepository = new InMemoryReminderRepository();
+  const jobState = inMemoryJobState();
   const assistant = new Assistant({
     parser: { parse },
     transactions: transactionService,
@@ -88,6 +94,12 @@ function setup() {
       budgets: budgetService,
       today: () => toDateOnlyString(clock(), 'America/Sao_Paulo'),
     }),
+    reminders: new ReminderService(reminderRepository, {
+      today: () => toDateOnlyString(clock(), 'America/Sao_Paulo'),
+      hour: () => localHour(clock(), 'America/Sao_Paulo'),
+      now: clock,
+    }),
+    jobState,
     logger,
     now: clock,
   });
@@ -105,6 +117,8 @@ function setup() {
 
   return {
     assistant,
+    reminderRepository,
+    jobState,
     parse,
     transactions,
     accounts,
@@ -402,7 +416,9 @@ describe('Assistant', () => {
       expect(askLimit.text).toContain('limite');
       const askClosing = await say('3.000');
       expect(askClosing.text).toContain('fecha');
-      const done = await say('5');
+      const askDue = await say('5');
+      expect(askDue.text).toContain('vence');
+      const done = await say('12');
 
       expect(parse).not.toHaveBeenCalled();
       expect(done.text).toContain('Cadastrado: Itaú (conta) e Itaú (crédito)');
@@ -417,6 +433,7 @@ describe('Assistant', () => {
         kind: 'CREDIT_CARD',
         creditLimitCents: 300000,
         closingDay: 5,
+        dueDay: 12,
       });
     });
 
@@ -445,7 +462,9 @@ describe('Assistant', () => {
 
       expect((await say('32')).text).toContain('Não entendi o dia');
       await say('dia 10');
-      expect((await accounts.listActive())[0]?.closingDay).toBe(10);
+      // Pular o vencimento também salva (sem lembrete da fatura).
+      await assistant.handleAction('ac:skip');
+      expect((await accounts.listActive())[0]).toMatchObject({ closingDay: 10, dueDay: null });
     });
 
     it('renomear um cartão', async () => {
@@ -629,15 +648,18 @@ describe('Assistant', () => {
       const [santander] = await accounts.create('CREDIT_CARD', 'Santander');
 
       const details = await assistant.handleAction(`ac:open:${santander?.id}`);
-      await assistant.handleAction(button(details, 'Limite e fechamento'));
+      await assistant.handleAction(button(details, 'Limite, fechamento e vencimento'));
       await say('2500');
-      const done = await say('12');
+      await say('12');
+      const done = await say('20');
 
       expect(done.text).toContain('Configuração salva');
       expect(done.text).toContain('limite R$');
+      expect(done.text).toContain('vence dia 20');
       expect((await accounts.listActive())[0]).toMatchObject({
         creditLimitCents: 250000,
         closingDay: 12,
+        dueDay: 20,
       });
     });
 
@@ -823,6 +845,140 @@ describe('Assistant', () => {
     });
   });
 
+  describe('lembretes', () => {
+    const HOUR = 60 * 60 * 1000;
+    const ipva = {
+      description: 'Pagar IPVA',
+      amountCents: 80000,
+      dueDate: '2026-10-10',
+      category: 'TRANSPORTE' as const,
+    };
+
+    it('"me lembra de…" cria o lembrete para a véspera, com botão de cancelar', async () => {
+      const { assistant, parse, say, button } = setup();
+      parse.mockResolvedValueOnce(result({ intent: 'reminder', reminder: ipva }));
+
+      const reply = await say('me lembra de pagar o ipva dia 10, 800 reais');
+
+      expect(reply.text).toMatch(
+        /Dia 09\/10 às 9h te lembro: Pagar IPVA · R\$\s800,00 \(vence 10\/10\)/,
+      );
+      const canceled = await assistant.handleAction(button(reply, 'Cancelar lembrete'));
+      expect(canceled.text).toContain('Lembrete cancelado: Pagar IPVA');
+      expect((await assistant.handleReminders()).text).toContain('Nenhum lembrete');
+    });
+
+    it('às 9h da véspera avisa uma vez; [Paguei] segue para a forma de pagamento', async () => {
+      const { assistant, parse, say, button, advanceClock } = setup();
+      parse.mockResolvedValueOnce(
+        result({ intent: 'reminder', reminder: { ...ipva, dueDate: '2026-09-26' } }),
+      );
+      await say('me lembra do ipva sábado');
+
+      expect(await assistant.dueReminders()).toEqual([]); // hoje (24) ainda não é a véspera
+      advanceClock(18 * HOUR + 10 * 60 * 1000); // 25/09, 09:10 em São Paulo
+      const [notice, ...others] = await assistant.dueReminders();
+
+      expect(others).toEqual([]);
+      expect(notice?.text).toMatch(/⏰ Lembrete: Pagar IPVA · R\$\s800,00\. Vence amanhã\./);
+      expect(await assistant.dueReminders()).toEqual([]);
+      if (!notice) throw new Error('sem aviso');
+      const paying = await assistant.handleAction(button(notice, 'Paguei e registrar'));
+      expect(paying.text).toContain('Como você pagou?');
+    });
+
+    it('fatura que vence amanhã: avisa com [Paguei]; paga ou zerada, não avisa', async () => {
+      const { assistant, accounts, parse, say, button } = setup();
+      const [santander] = await accounts.create('CREDIT_CARD', 'Santander', {
+        creditLimitCents: 300000,
+        closingDay: 5,
+        dueDay: 25,
+      });
+      if (!santander) throw new Error('cartão não criado');
+      parse.mockResolvedValueOnce(
+        result({
+          transactions: [
+            draft({
+              amountCents: 10000,
+              paymentMethod: 'CREDITO',
+              account: 'Santander',
+              occurredAt: '2026-09-01',
+            }),
+          ],
+        }),
+      );
+      await say('mercado 100 no santander dia 1');
+
+      const [notice] = await assistant.dueReminders();
+
+      expect(notice?.text).toMatch(
+        /💳 A fatura de set\/2026 do Santander vence amanhã: R\$\s100,00\./,
+      );
+      if (!notice) throw new Error('sem aviso');
+      const paid = await assistant.handleAction(button(notice, 'Paguei'));
+      expect(paid.text).toContain('marcada como paga');
+      expect(await assistant.dueReminders()).toEqual([]);
+    });
+
+    it('conta fixa em modo lembrete: não lança sozinha; [Paguei] lança e [Pular] pula', async () => {
+      const { assistant, recurringRepository, transactions, button } = setup();
+      const aluguel = await recurringRepository.create({
+        type: 'EXPENSE',
+        amountCents: 120000,
+        description: 'Aluguel',
+        category: 'MORADIA',
+        paymentMethod: 'PIX',
+        accountId: null,
+        dayOfMonth: 25,
+        lastRunMonth: null,
+      });
+      await recurringRepository.update(aluguel.id, { mode: 'REMIND' });
+      const standalone = new RecurringService(
+        recurringRepository,
+        new TransactionService(transactions),
+      );
+      expect(await standalone.runDue('2026-09-25')).toEqual([]);
+
+      const [notice] = await assistant.dueReminders();
+      expect(notice?.text).toMatch(/🧾 Amanhã vence: Aluguel · R\$\s1\.200,00/);
+      if (!notice) throw new Error('sem aviso');
+
+      const paid = await assistant.handleAction(button(notice, 'Paguei'));
+      expect(paid.text).toContain('Registrado');
+      expect(transactions.rows).toMatchObject([{ description: 'Aluguel', source: 'RECURRING' }]);
+      expect((await assistant.handleAction(button(notice, 'Paguei'))).text).toContain(
+        'já está lançado',
+      );
+    });
+
+    it('[Pular este mês] marca o mês sem lançar; /lembretes lista tudo', async () => {
+      const { assistant, recurringRepository, transactions, accounts, button } = setup();
+      await accounts.create('CREDIT_CARD', 'Santander', { closingDay: 5, dueDay: 12 });
+      const conta = await recurringRepository.create({
+        type: 'EXPENSE',
+        amountCents: 9000,
+        description: 'Internet',
+        category: 'CONTAS',
+        paymentMethod: 'PIX',
+        accountId: null,
+        dayOfMonth: 25,
+        lastRunMonth: null,
+      });
+      await recurringRepository.update(conta.id, { mode: 'REMIND' });
+
+      const menu = await assistant.handleReminders();
+      expect(menu.text).toContain('Faturas:');
+      expect(menu.text).toContain('💳 Santander: vence 12/10');
+      expect(menu.text).toContain('🧾 Internet: vence 25/09');
+
+      const [notice] = await assistant.dueReminders();
+      if (!notice) throw new Error('sem aviso');
+      const skipped = await assistant.handleAction(button(notice, 'Pular este mês'));
+      expect(skipped.text).toContain('Pulei Internet em set/2026');
+      expect(transactions.rows).toHaveLength(0);
+    });
+  });
+
   describe('perguntas', () => {
     function query(overrides: Partial<Query>): ParseResult {
       return result({
@@ -906,7 +1062,11 @@ describe('Assistant', () => {
         (a) => a.name === 'Itaú' && a.kind === 'CREDIT_CARD',
       );
       if (!itauCredit) throw new Error('cartão não criado');
-      await accounts.configureCredit(itauCredit, { creditLimitCents: 100000, closingDay: 5 });
+      await accounts.configureCredit(itauCredit, {
+        creditLimitCents: 100000,
+        closingDay: 5,
+        dueDay: null,
+      });
       await budgets.upsert('COMPRAS', 40000);
       parse
         .mockResolvedValueOnce(

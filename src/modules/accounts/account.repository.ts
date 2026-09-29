@@ -9,13 +9,19 @@ export interface NewAccount {
   initialBalanceCents: number;
   creditLimitCents: number | null;
   closingDay: number | null;
+  dueDay: number | null;
 }
 
 /** Campos que podem mudar depois do cadastro. */
 export type AccountPatch = Partial<
   Pick<
     Account,
-    'name' | 'initialBalanceCents' | 'creditLimitCents' | 'closingDay' | 'creditAdjustmentCents'
+    | 'name'
+    | 'initialBalanceCents'
+    | 'creditLimitCents'
+    | 'closingDay'
+    | 'dueDay'
+    | 'creditAdjustmentCents'
   >
 >;
 

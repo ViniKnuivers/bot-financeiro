@@ -30,8 +30,8 @@ export interface RecurringFlowDeps {
 }
 
 /**
- * Menu /fixos. Botões com prefixo "fx:": add, manage, open:<id>, tog:<id>, rm:<id>,
- * rmok:<id>, list, cancel.
+ * Menu /fixos. Botões com prefixo "fx:": add, manage, open:<id>, tog:<id>, mode:<id>,
+ * rm:<id>, rmok:<id>, list, cancel.
  */
 export class RecurringFlow {
   constructor(private readonly deps: RecurringFlowDeps) {}
@@ -87,6 +87,16 @@ export class RecurringFlow {
         return this.withEntry(arg, async (entry) => {
           await this.deps.recurring.setActive(entry.id, !entry.active);
           return this.details({ ...entry, active: !entry.active });
+        });
+      case 'mode':
+        return this.withEntry(arg, async (entry) => {
+          const mode = entry.mode === 'AUTO' ? 'REMIND' : 'AUTO';
+          await this.deps.recurring.setMode(entry.id, mode);
+          const prefix =
+            mode === 'REMIND'
+              ? '🔔 Combinado: eu lembro na véspera, às 9h, e só lanço quando você tocar em [Paguei].\n\n'
+              : '⚡ Combinado: eu lanço sozinho no dia e aviso.\n\n';
+          return this.details({ ...entry, mode }, prefix);
         });
       case 'rm':
         return this.withEntry(arg, (entry) => ({
@@ -151,16 +161,23 @@ export class RecurringFlow {
     return message;
   }
 
-  private async details(entry: RecurringEntry): Promise<OutgoingMessage> {
+  private async details(entry: RecurringEntry, prefix = ''): Promise<OutgoingMessage> {
     const accounts = await this.accountsById();
+    const how =
+      entry.mode === 'REMIND' ? 'lembro na véspera e lanço no [Paguei]' : 'lanço sozinho no dia';
     return {
-      text: `${formatRecurringLine(entry, accounts)}${entry.active ? `\npróximo: ${this.nextRun(entry, this.deps.today())}` : ''}`,
+      text: `${prefix}${formatRecurringLine(entry, accounts)}\n${how}${entry.active ? `\npróximo: ${this.nextRun(entry, this.deps.today())}` : ''}`,
       actions: [
         [
           entry.active
             ? { label: '⏸️ Pausar', id: `fx:tog:${entry.id}` }
             : { label: '▶️ Retomar', id: `fx:tog:${entry.id}` },
           { label: '🗑️ Remover', id: `fx:rm:${entry.id}` },
+        ],
+        [
+          entry.mode === 'REMIND'
+            ? { label: '⚡ Lançar sozinho', id: `fx:mode:${entry.id}` }
+            : { label: '🔔 Lembrar na véspera', id: `fx:mode:${entry.id}` },
         ],
         [{ label: '↩️ Voltar', id: 'fx:manage' }],
       ],

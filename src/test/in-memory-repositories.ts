@@ -1,3 +1,9 @@
+import { parseDateOnly } from '../lib/dates.js';
+import type {
+  NewReminder,
+  Reminder,
+  ReminderRepository,
+} from '../modules/reminders/reminder.repository.js';
 import type { JobStateRepository } from '../jobs/job-state.repository.js';
 import type {
   Account,
@@ -187,7 +193,13 @@ export class InMemoryRecurringRepository implements RecurringRepository {
   }
 
   create(entry: NewRecurringEntry): Promise<RecurringEntry> {
-    const created = { ...entry, id: ++this.sequence, active: true, createdAt: new Date() };
+    const created = {
+      mode: 'AUTO' as const,
+      ...entry,
+      id: ++this.sequence,
+      active: true,
+      createdAt: new Date(),
+    };
     this.rows.push(created);
     return Promise.resolve({ ...created });
   }
@@ -245,4 +257,76 @@ export function inMemoryJobState(): JobStateRepository & { values: Map<string, s
       return Promise.resolve();
     },
   };
+}
+
+/** Lembretes avulsos em memória (mesmas regras de filtro do Prisma). */
+export class InMemoryReminderRepository implements ReminderRepository {
+  readonly rows: Reminder[] = [];
+  private sequence = 0;
+
+  create(reminder: NewReminder): Promise<Reminder> {
+    const row: Reminder = {
+      id: ++this.sequence,
+      description: reminder.description,
+      amountCents: reminder.amountCents,
+      category: reminder.category,
+      dueDate: parseDateOnly(reminder.dueDate),
+      remindOn: parseDateOnly(reminder.remindOn),
+      sentAt: reminder.sentAt ?? null,
+      doneAt: null,
+      canceledAt: null,
+      createdAt: new Date(),
+    };
+    this.rows.push(row);
+    return Promise.resolve({ ...row });
+  }
+
+  find(id: number): Promise<Reminder | null> {
+    const row = this.rows.find((r) => r.id === id);
+    return Promise.resolve(row ? { ...row } : null);
+  }
+
+  listOpen(fromDate: string): Promise<Reminder[]> {
+    const from = parseDateOnly(fromDate).getTime();
+    return Promise.resolve(
+      this.rows
+        .filter((r) => !r.doneAt && !r.canceledAt && r.dueDate.getTime() >= from)
+        .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime() || a.id - b.id)
+        .map((r) => ({ ...r })),
+    );
+  }
+
+  listDue(today: string): Promise<Reminder[]> {
+    const day = parseDateOnly(today).getTime();
+    return Promise.resolve(
+      this.rows
+        .filter(
+          (r) =>
+            !r.doneAt &&
+            !r.canceledAt &&
+            !r.sentAt &&
+            r.remindOn.getTime() <= day &&
+            r.dueDate.getTime() >= day,
+        )
+        .map((r) => ({ ...r })),
+    );
+  }
+
+  markSent(id: number, at: Date): Promise<void> {
+    const row = this.rows.find((r) => r.id === id);
+    if (row) row.sentAt = at;
+    return Promise.resolve();
+  }
+
+  markDone(id: number, at: Date): Promise<boolean> {
+    const row = this.rows.find((r) => r.id === id && !r.doneAt && !r.canceledAt);
+    if (row) row.doneAt = at;
+    return Promise.resolve(row !== undefined);
+  }
+
+  cancel(id: number, at: Date): Promise<boolean> {
+    const row = this.rows.find((r) => r.id === id && !r.doneAt && !r.canceledAt);
+    if (row) row.canceledAt = at;
+    return Promise.resolve(row !== undefined);
+  }
 }

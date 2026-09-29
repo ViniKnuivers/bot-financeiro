@@ -59,10 +59,13 @@ export const WELCOME = [
   '• qual foi meu maior gasto este mês?',
   '• posso gastar 300 num tênis?',
   '',
+  'E lembro você de contas: "me lembra de pagar o IPVA dia 10, 800 reais".',
+  '',
   'Comandos:',
   '/resumo: quanto entrou, saiu, sobrou e foi investido no mês',
   '/orcamento: limites por categoria, com aviso ao passar de 80%',
-  '/fixos: gastos fixos que eu lanço sozinho todo mês',
+  '/fixos: gastos fixos que eu lanço sozinho (ou lembro) todo mês',
+  '/lembretes: contas e faturas que vencem nos próximos dias',
   '/planilha e /grafico: sua planilha Google com tudo (se configurada)',
   '/cartoes: seus cartões, contas e saldos',
   '/pendentes: lançamentos esperando sua resposta',
@@ -282,7 +285,8 @@ export function formatRecurringLine(entry: RecurringEntry, accounts: AccountsByI
   ];
   const payment = paymentLabel(entry.paymentMethod, entry.accountId, accounts);
   if (payment) parts.push(payment);
-  return parts.join(' · ') + (entry.active ? '' : ' (pausado)');
+  const mode = entry.mode === 'REMIND' ? ' 🔔' : '';
+  return parts.join(' · ') + mode + (entry.active ? '' : ' (pausado)');
 }
 
 export function formatRecurringCreated(
@@ -294,7 +298,9 @@ export function formatRecurringCreated(
     '✅ Gasto fixo cadastrado:',
     formatRecurringLine(entry, accounts),
     '',
-    `Primeiro lançamento: ${formatDateOnly(new Date(`${nextRun}T00:00:00.000Z`))}. Eu aviso quando lançar. Para pausar ou remover: /fixos`,
+    `Primeiro lançamento: ${formatDateOnly(new Date(`${nextRun}T00:00:00.000Z`))}. Eu lanço sozinho e aviso.`,
+    'Se você paga na mão (boleto, pix), prefira o lembrete: eu aviso na véspera e só lanço quando você tocar em [Paguei].',
+    'Para pausar ou remover: /fixos',
   ].join('\n');
 }
 

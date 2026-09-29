@@ -58,3 +58,29 @@ describe('buildParseResultJsonSchema', () => {
     });
   });
 });
+
+describe('validParseResultSchema: lembretes', () => {
+  const reminder = {
+    description: 'Pagar IPVA',
+    amountCents: 80000,
+    dueDate: '2026-10-10',
+    category: 'TRANSPORTE',
+  };
+  const base = { transactions: [], query: null, transcript: null, reply: 'Combinado!' };
+
+  it('aceita o lembrete; recusa intent sem lembrete ou com categoria de receita', () => {
+    expect(
+      validParseResultSchema.safeParse({ ...base, intent: 'reminder', reminder }).success,
+    ).toBe(true);
+    expect(
+      validParseResultSchema.safeParse({ ...base, intent: 'reminder', reminder: null }).success,
+    ).toBe(false);
+    expect(
+      validParseResultSchema.safeParse({
+        ...base,
+        intent: 'reminder',
+        reminder: { ...reminder, category: 'SALARIO' },
+      }).success,
+    ).toBe(false);
+  });
+});

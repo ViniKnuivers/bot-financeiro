@@ -50,16 +50,39 @@ export const querySchema = z.object({
 
 export type Query = z.infer<typeof querySchema>;
 
+/** "Me lembra de pagar o IPVA dia 10, 800 reais". */
+export const reminderSchema = z.object({
+  description: z
+    .string()
+    .min(1)
+    .max(80)
+    .describe('O que lembrar, curto e com inicial maiúscula (ex.: "Pagar IPVA").'),
+  amountCents: z
+    .int()
+    .min(1)
+    .max(MAX_AMOUNT_CENTS)
+    .nullable()
+    .describe('Valor em centavos, se citado; null se não.'),
+  dueDate: z.iso.date().describe('Data do vencimento/compromisso (YYYY-MM-DD).'),
+  category: z
+    .enum(Category)
+    .nullable()
+    .describe('Categoria de despesa que o pagamento terá, se der para saber; null se não.'),
+});
+
+export type ReminderRequest = z.infer<typeof reminderSchema>;
+
 /** Formato que a IA deve devolver. */
 export const parseResultSchema = z.object({
   intent: z
-    .enum(['register', 'clarify', 'query', 'other'])
+    .enum(['register', 'clarify', 'query', 'reminder', 'other'])
     .describe(
-      'register: salvar; clarify: falta informação; query: pergunta sobre os gastos; other: nenhum dos outros.',
+      'register: salvar; clarify: falta informação; query: pergunta sobre os gastos; reminder: pedido de lembrete; other: nenhum dos outros.',
     ),
   transactions: z.array(transactionDraftSchema),
   // default(null): respostas antigas (e testes) sem o campo continuam válidas.
   query: querySchema.nullable().default(null),
+  reminder: reminderSchema.nullable().default(null),
   transcript: z.string().nullable().describe('Transcrição literal do áudio; null para texto.'),
   reply: z.string().min(1).describe('Mensagem curta para o usuário, em português.'),
 });
@@ -112,6 +135,20 @@ export function buildParseResultJsonSchema(
  */
 export const validParseResultSchema = parseResultSchema.superRefine((result, ctx) => {
   if (result.intent === 'query') validateQuery(result.query, ctx);
+  if (result.intent === 'reminder' && !result.reminder) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reminder'],
+      message: 'intent "reminder" sem o lembrete',
+    });
+  }
+  if (result.reminder?.category && !isCategoryAllowedForType(result.reminder.category, 'EXPENSE')) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reminder', 'category'],
+      message: 'lembrete com categoria que não é de despesa',
+    });
+  }
 
   if (result.intent === 'register' && result.transactions.length === 0) {
     ctx.addIssue({

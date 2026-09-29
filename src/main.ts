@@ -13,11 +13,12 @@ import { WhatsAppWindow } from './channels/whatsapp/whatsapp-window.js';
 import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
 import { forecastAlertJob } from './jobs/forecast-alert.job.js';
+import { remindersJob } from './jobs/reminders.job.js';
 import { monthlyReportJob } from './jobs/monthly-report.job.js';
 import { recurringJob } from './jobs/recurring.job.js';
 import { sheetRefreshJob } from './jobs/sheet-refresh.job.js';
 import { Scheduler } from './jobs/scheduler.js';
-import { toDateOnlyString } from './lib/dates.js';
+import { localHour, toDateOnlyString } from './lib/dates.js';
 import { buildServer } from './http/server.js';
 import { createPrismaClient } from './lib/prisma.js';
 import { PrismaAccountRepository } from './modules/accounts/account.repository.js';
@@ -32,6 +33,8 @@ import { RecurringService } from './modules/recurring/recurring.service.js';
 import { ReportService } from './modules/reports/report.service.js';
 import { forecastSentence } from './modules/insights/forecast.js';
 import { InsightsService } from './modules/insights/insights.service.js';
+import { PrismaReminderRepository } from './modules/reminders/reminder.repository.js';
+import { ReminderService } from './modules/reminders/reminder.service.js';
 import { createSheetSync } from './modules/sheets/create-sheet-sync.js';
 import {
   PrismaSheetSnapshotRepository,
@@ -141,6 +144,12 @@ async function main(): Promise<void> {
     reports,
     budgets,
     insights,
+    reminders: new ReminderService(new PrismaReminderRepository(prisma), {
+      today,
+      hour: () => localHour(new Date(), env.APP_TIMEZONE),
+      now: () => new Date(),
+    }),
+    jobState,
     logger: app.log,
     timeZone: env.APP_TIMEZONE,
     ...(sheets ? { sheets } : {}),
@@ -208,6 +217,12 @@ async function main(): Promise<void> {
         onChange: () => sheets?.requestSync(),
       }),
       ...(sheets ? [sheetRefreshJob(sheets)] : []),
+      remindersJob({
+        assistant,
+        notifier,
+        now: () => new Date(),
+        timeZone: env.APP_TIMEZONE,
+      }),
       forecastAlertJob({
         insights,
         jobState,

@@ -34,6 +34,7 @@ const COMMANDS: Record<string, Command> = {
   resumo: (h) => one(h.handleSummary()),
   orcamento: (h) => one(h.handleBudgets()),
   fixos: (h) => one(h.handleRecurring()),
+  lembretes: (h) => one(h.handleReminders()),
   planilha: (h) => one(h.handleSpreadsheet()),
   grafico: (h) => one(h.handleCharts()),
   pendentes: (h) => h.handlePending(),

@@ -1,3 +1,4 @@
+import type { RecurringMode } from '../../generated/prisma/enums.js';
 import type { RegisteredBatch, TransactionService } from '../transactions/transaction.service.js';
 import { dueDate, initialLastRunMonth, isDue } from './recurring-schedule.js';
 import type {
@@ -37,6 +38,31 @@ export class RecurringService {
     return this.recurring.update(id, { active });
   }
 
+  /** AUTO: lança sozinho no dia. REMIND: lembra na véspera e lança no [Paguei]. */
+  setMode(id: number, mode: RecurringMode): Promise<void> {
+    return this.recurring.update(id, { mode });
+  }
+
+  /**
+   * [Paguei] de um fixo em modo lembrete: lança agora (com a data de hoje) e marca o mês,
+   * para não lembrar nem lançar de novo. Retorna null se esse mês já foi lançado.
+   */
+  async payNow(
+    entry: RecurringEntry,
+    month: string,
+    today: string,
+  ): Promise<RegisteredBatch | null> {
+    const current = await this.find(entry.id);
+    if (!current || current.lastRunMonth === month) return null;
+    await this.recurring.update(entry.id, { lastRunMonth: month });
+    return this.register(current, today);
+  }
+
+  /** [Pular este mês]: marca o mês sem lançar nada. */
+  skipMonth(id: number, month: string): Promise<void> {
+    return this.recurring.update(id, { lastRunMonth: month });
+  }
+
   remove(id: number): Promise<void> {
     return this.recurring.remove(id);
   }
@@ -59,26 +85,31 @@ export class RecurringService {
     const month = today.slice(0, 7);
     const runs: RecurringRun[] = [];
     for (const entry of await this.recurring.list()) {
-      if (!isDue(entry, today)) continue;
+      // Os de lembrete só são lançados quando você toca em [Paguei].
+      if (entry.mode === 'REMIND' || !isDue(entry, today)) continue;
       await this.recurring.update(entry.id, { lastRunMonth: month });
-      const batch = await this.transactions.register({
-        drafts: [
-          {
-            type: entry.type,
-            amountCents: entry.amountCents,
-            description: entry.description,
-            category: entry.category,
-            paymentMethod: entry.paymentMethod,
-            accountId: entry.accountId,
-            installments: 1,
-            occurredAt: dueDate(entry.dayOfMonth, month),
-          },
-        ],
-        rawInput: `Gasto fixo: ${entry.description}`,
-        source: 'RECURRING',
-      });
+      const batch = await this.register(entry, dueDate(entry.dayOfMonth, month));
       runs.push({ entry, batch });
     }
     return runs;
+  }
+
+  private register(entry: RecurringEntry, occurredAt: string): Promise<RegisteredBatch> {
+    return this.transactions.register({
+      drafts: [
+        {
+          type: entry.type,
+          amountCents: entry.amountCents,
+          description: entry.description,
+          category: entry.category,
+          paymentMethod: entry.paymentMethod,
+          accountId: entry.accountId,
+          installments: 1,
+          occurredAt,
+        },
+      ],
+      rawInput: `Gasto fixo: ${entry.description}`,
+      source: 'RECURRING',
+    });
   }
 }

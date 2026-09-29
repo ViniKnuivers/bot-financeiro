@@ -14,7 +14,7 @@ export type NewRecurringEntry = Pick<
   | 'lastRunMonth'
 >;
 
-export type RecurringPatch = Partial<Pick<RecurringEntry, 'active' | 'lastRunMonth'>>;
+export type RecurringPatch = Partial<Pick<RecurringEntry, 'active' | 'lastRunMonth' | 'mode'>>;
 
 export interface RecurringRepository {
   list(): Promise<RecurringEntry[]>;

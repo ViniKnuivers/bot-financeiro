@@ -37,6 +37,7 @@ function handler() {
     handleSummary: reply('resumo'),
     handleBudgets: reply('orçamento'),
     handleRecurring: reply('fixos'),
+    handleReminders: reply('lembretes'),
     handleSpreadsheet: reply('planilha'),
     handleCharts: reply('painel'),
   } satisfies MessageHandler;

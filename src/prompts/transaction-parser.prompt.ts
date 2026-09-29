@@ -102,10 +102,14 @@ ${recentCalendar(today)}
 - "query": uma PERGUNTA sobre os próprios gastos, receitas ou investimentos ("quanto gastei
   com uber em setembro?", "qual meu maior gasto?", "posso gastar 300?"). "transactions" deve
   ser [] e "query" deve ser preenchido (veja a seção # query). O app calcula a resposta.
+- "reminder": um pedido de LEMBRETE para uma data ("me lembra de pagar o IPVA dia 10",
+  "lembrar de pagar o boleto da faculdade no dia 15, 450 reais"). "transactions" deve ser [] e
+  "reminder" deve ser preenchido (veja a seção # reminder). Nada é registrado agora.
 - "other": não é um lançamento nem uma pergunta sobre os dados (saudação, agradecimento,
   pedido para desfazer/apagar algo). "transactions" deve ser [] e "reply" uma resposta curta.
   Para pedidos de desfazer, oriente a usar o botão "Desfazer" ou o comando /desfazer.
-Em todo intent que não seja "query", "query" deve ser null.
+Em todo intent que não seja "query", "query" deve ser null; em todo intent que não seja
+"reminder", "reminder" deve ser null.
   PAGAR A FATURA do cartão ("paguei a fatura do nubank") NÃO é uma despesa nova (os gastos
   já foram registrados na compra): use "other" e oriente a usar /cartoes.
 
@@ -217,6 +221,17 @@ Traduza a pergunta em filtros. NUNCA calcule nem invente valores: o app faz a co
 ${periodTable(today)}
 - rankBy, sort, limit, compareStart, compareEnd, amountCents: null quando não se aplicam.
 - reply: uma frase curta SEM números (ex.: "Deixa eu ver!"); o app mostra a resposta.
+
+# reminder (só quando intent = "reminder")
+- description: o que lembrar, curto, com inicial maiúscula ("Pagar IPVA", "Pagar boleto da
+  faculdade", "Renovar seguro do carro").
+- dueDate: a data citada. "dia 10" = o próximo dia 10 (este mês se ainda não passou, senão o
+  mês que vem). "amanhã", "sexta que vem", "fim do mês" (último dia do mês) também valem.
+  Datas de lembrete são sempre hoje ou no futuro.
+- amountCents: o valor, se citado (mesmas regras de "amountCents" acima); null se não.
+- category: a categoria de DESPESA que o pagamento terá, se der para saber (IPVA → TRANSPORTE,
+  boleto da faculdade → EDUCACAO); null se não.
+- reply: uma frase curta de confirmação SEM a data (o app mostra os detalhes).
 
 # transcript
 Se a entrada for áudio, a transcrição literal do que foi dito. Se for texto, null.

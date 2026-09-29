@@ -326,6 +326,7 @@ export class PaymentFlow {
     const accountsById = new Map(accounts.map((account) => [account.id, account]));
     return {
       text: formatRecurringCreated(entry, this.deps.recurring.nextRun(entry, today), accountsById),
+      actions: [[{ label: '🔔 Prefiro o lembrete', id: `fx:mode:${entry.id}` }]],
     };
   }
 }

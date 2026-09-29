@@ -19,6 +19,8 @@ import { addMonths } from '../modules/accounts/credit-invoice.js';
 import type { AccountService } from '../modules/accounts/account.service.js';
 import type { BudgetService } from '../modules/budgets/budget.service.js';
 import type { InsightsService } from '../modules/insights/insights.service.js';
+import type { JobStateRepository } from '../jobs/job-state.repository.js';
+import type { ReminderService } from '../modules/reminders/reminder.service.js';
 import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
 import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
@@ -31,6 +33,7 @@ import { formatInsight } from './insight-replies.js';
 import { ConversationState } from './conversation-state.js';
 import { PaymentFlow, UNDO_PREFIX } from './payment-flow.js';
 import { RecurringFlow } from './recurring-flow.js';
+import { RemindersFlow } from './reminders-flow.js';
 import {
   formatHeard,
   formatLatest,
@@ -54,6 +57,10 @@ export interface AssistantDeps {
   budgets: BudgetService;
   /** Respostas às perguntas e previsão do mês. */
   insights: Pick<InsightsService, 'answer' | 'forecast'>;
+  /** Lembretes avulsos ("me lembra de pagar o IPVA dia 10"). */
+  reminders: ReminderService;
+  /** Guarda quais avisos de fatura e de conta fixa já saíram. */
+  jobState: JobStateRepository;
   logger: Logger;
   /** Relógio injetável, para testar expirações, faturas e gastos fixos. */
   now?: () => Date;
@@ -83,6 +90,7 @@ export class Assistant implements MessageHandler {
   private readonly accountsFlow: AccountsFlow;
   private readonly budgetFlow: BudgetFlow;
   private readonly recurringFlow: RecurringFlow;
+  private readonly remindersFlow: RemindersFlow;
   private readonly now: () => Date;
   private readonly today: () => string;
 
@@ -107,6 +115,12 @@ export class Assistant implements MessageHandler {
       today: this.today,
       now: this.now,
       interpret: (text) => this.interpret({ text, now: this.now() }),
+    });
+    this.remindersFlow = new RemindersFlow({
+      ...deps,
+      payments: this.payments,
+      today: this.today,
+      now: this.now,
     });
   }
 
@@ -208,6 +222,11 @@ export class Assistant implements MessageHandler {
       return this.withPendingFooter({ text: heard + text }, null);
     }
 
+    if (result.intent === 'reminder' && result.reminder) {
+      const reply = await this.remindersFlow.create(result.reminder);
+      return this.withPendingFooter({ ...reply, text: heard + reply.text }, null);
+    }
+
     // "clarify" e "other" nunca salvam nada: só repassam a resposta da IA.
     if (result.intent !== 'register') {
       return this.withPendingFooter({ text: heard + result.reply }, null);
@@ -243,7 +262,8 @@ export class Assistant implements MessageHandler {
       (await this.payments.handleAction(actionId)) ??
       (await this.accountsFlow.handleAction(actionId)) ??
       (await this.budgetFlow.handleAction(actionId)) ??
-      (await this.recurringFlow.handleAction(actionId));
+      (await this.recurringFlow.handleAction(actionId)) ??
+      (await this.remindersFlow.handleAction(actionId));
     if (reply) return reply;
 
     this.deps.logger.warn({ actionId }, 'ação desconhecida');
@@ -305,6 +325,15 @@ export class Assistant implements MessageHandler {
 
   handleRecurring(): Promise<OutgoingMessage> {
     return this.recurringFlow.menu();
+  }
+
+  handleReminders(): Promise<OutgoingMessage> {
+    return this.remindersFlow.menu();
+  }
+
+  /** Avisos das 9h: lembretes avulsos, faturas e contas fixas que vencem amanhã. */
+  dueReminders(): Promise<OutgoingMessage[]> {
+    return this.remindersFlow.dueNotices();
   }
 
   handleSpreadsheet(): Promise<OutgoingMessage> {

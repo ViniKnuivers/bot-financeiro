@@ -119,6 +119,8 @@ model Account {
   // registra em qual cartão foi).
   creditLimitCents      Int?
   closingDay            Int?
+  // Dia em que a fatura vence (para o lembrete da véspera). Opcional.
+  dueDay                Int?
   // Diferença informada pelo usuário ("Ajustar disponível") para o disponível calculado
   // bater com o do banco, que conhece compras de antes do cadastro.
   creditAdjustmentCents Int              @default(0)
@@ -210,6 +212,8 @@ model RecurringEntry {
   active        Boolean         @default(true)
   // Último mês ("YYYY-MM") em que foi lançado: garante no máximo um lançamento por mês.
   lastRunMonth  String?
+  // AUTO: lança sozinho no dia. REMIND: lembra na véspera e só lança no [Paguei].
+  mode          RecurringMode   @default(AUTO)
   createdAt     DateTime        @default(now()) @db.Timestamptz(3)
 
   @@map("recurring_entries")
@@ -240,4 +244,29 @@ model TrashEntry {
   deletedAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@map("trash_entries")
+}
+
+enum RecurringMode {
+  AUTO
+  REMIND
+}
+
+/// Lembrete avulso criado conversando ("me lembra de pagar o IPVA dia 10").
+model Reminder {
+  // Inteiro curto: vai no id dos botões (limite de 64 bytes no Telegram).
+  id          Int       @id @default(autoincrement())
+  description String
+  // Com valor, o [Paguei] já registra o gasto.
+  amountCents Int?
+  category    Category?
+  dueDate     DateTime  @db.Date
+  // Dia em que o lembrete sai, às 9h (a véspera; o próprio dia se criado em cima da hora).
+  remindOn    DateTime  @db.Date
+  sentAt      DateTime? @db.Timestamptz(3)
+  doneAt      DateTime? @db.Timestamptz(3)
+  canceledAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([remindOn])
+  @@map("reminders")
 }

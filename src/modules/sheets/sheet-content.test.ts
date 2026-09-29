@@ -11,6 +11,7 @@ const santander = {
   initialBalanceCents: 0,
   creditLimitCents: 300000,
   closingDay: 5,
+  dueDay: null,
   creditAdjustmentCents: 0,
   archivedAt: null,
   createdAt: new Date(),

@@ -25,6 +25,16 @@ export function closingDate(month: string, closingDay: number): string {
 }
 
 /**
+ * Vencimento da fatura que fecha em `invoiceMonth`: no mesmo mês se o dia de vencimento
+ * vem depois do fechamento (fecha dia 5, vence dia 12); senão, no mês seguinte (fecha dia
+ * 25, vence dia 5). Dia 31 em mês mais curto vira o último dia.
+ */
+export function invoiceDueDate(invoiceMonth: string, closingDay: number, dueDay: number): string {
+  const month = dueDay > closingDay ? invoiceMonth : addMonths(invoiceMonth, 1);
+  return closingDate(month, dueDay);
+}
+
+/**
  * Fatura em que cai uma compra: se foi antes do dia de fechamento, entra na fatura que
  * fecha naquele mês; no dia do fechamento ou depois, entra na do mês seguinte.
  */

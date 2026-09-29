@@ -60,9 +60,23 @@ const chatStateSchema = z.discriminatedUnion('flow', [
     initialBalanceCents: z.int().default(0),
     limitCents: optionalCents,
   }),
+  z.object({
+    flow: z.literal('new_account_due'),
+    choice: creditChoice,
+    name: z.string(),
+    initialBalanceCents: z.int().default(0),
+    limitCents: optionalCents,
+    closingDay: z.int(),
+  }),
   z.object({ flow: z.literal('adjust_balance'), accountId }),
   z.object({ flow: z.literal('config_limit'), accountId }),
   z.object({ flow: z.literal('config_closing'), accountId, limitCents: optionalCents }),
+  z.object({
+    flow: z.literal('config_due'),
+    accountId,
+    limitCents: optionalCents,
+    closingDay: z.int(),
+  }),
   z.object({ flow: z.literal('adjust_available'), accountId }),
   z.object({ flow: z.literal('rename'), accountId }),
 ]);
@@ -73,6 +87,9 @@ const SKIP: ReplyAction = { label: '⏭️ Pular', id: 'ac:skip' };
 
 const LIMIT_QUESTION =
   'Qual o limite do cartão? Ex.: 3000. Se não quiser acompanhar o limite, toque em Pular.';
+const DUE_QUESTION =
+  'E em que dia ela vence? Digite só o dia, ex.: 12. Eu te lembro na véspera, às 9h. Se não quiser o lembrete, toque em Pular.';
+
 const CLOSING_QUESTION =
   'Em que dia a fatura fecha? Digite só o dia, ex.: 5. Se não quiser acompanhar a fatura, toque em Pular.';
 
@@ -219,10 +236,18 @@ export class AccountsFlow {
       case 'new_account_closing': {
         const day = parseClosingDay(text);
         if (day === null) return this.invalidDay();
+        return this.ask({ ...state, flow: 'new_account_due', closingDay: day }, DUE_QUESTION, [
+          SKIP,
+        ]);
+      }
+      case 'new_account_due': {
+        const day = parseClosingDay(text);
+        if (day === null) return this.invalidDay();
         return this.createAccount(state.choice, state.name, {
           initialBalanceCents: state.initialBalanceCents,
           creditLimitCents: state.limitCents,
-          closingDay: day,
+          closingDay: state.closingDay,
+          dueDay: day,
         });
       }
       case 'config_limit': {
@@ -235,7 +260,12 @@ export class AccountsFlow {
       case 'config_closing': {
         const day = parseClosingDay(text);
         if (day === null) return this.invalidDay();
-        return this.saveCreditSettings(state.accountId, state.limitCents, day);
+        return this.ask({ ...state, flow: 'config_due', closingDay: day }, DUE_QUESTION, [SKIP]);
+      }
+      case 'config_due': {
+        const day = parseClosingDay(text);
+        if (day === null) return this.invalidDay();
+        return this.saveCreditSettings(state.accountId, state.limitCents, state.closingDay, day);
       }
       case 'adjust_balance':
       case 'adjust_available':
@@ -276,12 +306,21 @@ export class AccountsFlow {
           creditLimitCents: state.limitCents,
           closingDay: null,
         });
+      case 'new_account_due':
+        return this.createAccount(state.choice, state.name, {
+          initialBalanceCents: state.initialBalanceCents,
+          creditLimitCents: state.limitCents,
+          closingDay: state.closingDay,
+          dueDay: null,
+        });
       case 'config_limit':
         return this.ask({ ...state, flow: 'config_closing', limitCents: null }, CLOSING_QUESTION, [
           SKIP,
         ]);
       case 'config_closing':
-        return this.saveCreditSettings(state.accountId, state.limitCents, null);
+        return this.saveCreditSettings(state.accountId, state.limitCents, null, null);
+      case 'config_due':
+        return this.saveCreditSettings(state.accountId, state.limitCents, state.closingDay, null);
       default:
         return this.menu();
     }
@@ -406,12 +445,13 @@ export class AccountsFlow {
     id: number,
     creditLimitCents: number | null,
     closingDay: number | null,
+    dueDay: number | null,
   ): Promise<OutgoingMessage> {
     await this.clear();
     const account = await this.deps.accounts.findActive(id);
     if (!account) return this.menu('Esse cartão não existe mais.\n\n');
-    await this.deps.accounts.configureCredit(account, { creditLimitCents, closingDay });
-    const updated = { ...account, creditLimitCents, closingDay };
+    await this.deps.accounts.configureCredit(account, { creditLimitCents, closingDay, dueDay });
+    const updated = { ...account, creditLimitCents, closingDay, dueDay };
     return this.accountDetails(updated, '✅ Configuração salva.\n\n');
   }
 
@@ -494,9 +534,10 @@ export class AccountsFlow {
           ? 'sem limite informado'
           : `limite ${formatCents(account.creditLimitCents)}`,
         account.closingDay === null ? 'sem dia de fechamento' : `fecha dia ${account.closingDay}`,
+        ...(account.dueDay === null ? [] : [`vence dia ${account.dueDay}`]),
       ];
       lines.push(settings.join(' · '));
-      rows.push([{ label: '⚙️ Limite e fechamento', id: `ac:cfg:${account.id}` }]);
+      rows.push([{ label: '⚙️ Limite, fechamento e vencimento', id: `ac:cfg:${account.id}` }]);
 
       const summary = await this.deps.accounts.creditSummary(account, this.deps.today());
       if (summary?.availableCents != null) {

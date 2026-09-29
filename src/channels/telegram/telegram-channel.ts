@@ -62,6 +62,9 @@ export class TelegramChannel implements MessageChannel {
     this.bot.command('fixos', async (ctx) => {
       await sendReply(ctx, await handler.handleRecurring());
     });
+    this.bot.command('lembretes', async (ctx) => {
+      await sendReply(ctx, await handler.handleReminders());
+    });
     this.bot.command('planilha', async (ctx) => {
       await sendReply(ctx, await handler.handleSpreadsheet());
     });
@@ -157,6 +160,7 @@ export class TelegramChannel implements MessageChannel {
       { command: 'planilha', description: 'Link da sua planilha' },
       { command: 'grafico', description: 'Gráficos na planilha' },
       { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
+      { command: 'lembretes', description: 'Contas e faturas que vencem logo' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
       { command: 'cartoes', description: 'Seus cartões, contas e saldos' },
       { command: 'pendentes', description: 'Lançamentos esperando resposta' },

@@ -23,14 +23,21 @@ export class AccountError extends Error {
 export interface NewAccountOptions {
   /** Conta bancária e VR/VA: saldo atual no momento do cadastro. */
   initialBalanceCents?: number;
-  /** Crédito: limite e dia de fechamento (opcionais). */
+  /** Crédito: limite, dia de fechamento e dia de vencimento (opcionais). */
   creditLimitCents?: number | null;
   closingDay?: number | null;
+  dueDay?: number | null;
 }
 
 export interface CreditSettings {
   creditLimitCents: number | null;
   closingDay: number | null;
+  dueDay: number | null;
+}
+
+export interface InvoiceStatus {
+  cents: number;
+  paid: boolean;
 }
 
 export class AccountService {
@@ -71,6 +78,7 @@ export class AccountService {
         initialBalanceCents: hasBalance(kind) ? (options.initialBalanceCents ?? 0) : 0,
         creditLimitCents: kind === 'CREDIT_CARD' ? (options.creditLimitCents ?? null) : null,
         closingDay: kind === 'CREDIT_CARD' ? (options.closingDay ?? null) : null,
+        dueDay: kind === 'CREDIT_CARD' ? (options.dueDay ?? null) : null,
       })),
     );
   }
@@ -132,6 +140,19 @@ export class AccountService {
       paidMonths,
       today,
     });
+  }
+
+  /** Valor de uma fatura (com as parcelas que caem nela) e se já foi marcada como paga. */
+  async invoiceStatus(card: Account, invoiceMonth: string): Promise<InvoiceStatus> {
+    if (card.closingDay === null) return { cents: 0, paid: false };
+    const [purchases, paidMonths] = await Promise.all([
+      this.transactions.listPurchasesByAccount(card.id),
+      this.invoices.listPaidMonths(card.id),
+    ]);
+    return {
+      cents: invoiceTotalsByMonth(purchases, card.closingDay).get(invoiceMonth) ?? 0,
+      paid: paidMonths.includes(invoiceMonth),
+    };
   }
 
   /**
