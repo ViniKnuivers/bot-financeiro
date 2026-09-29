@@ -56,12 +56,26 @@ Bot:   ✅ Registrado:
 - **Mostra quanto sobra para investir:** `/resumo` traz o mês com receitas, despesas,
   sobra (sem contar VR/VA, que não dá para investir), quanto você investiu e o saldo da
   conta. Dá para navegar pelos meses anteriores.
+- **Prevê o fim do mês:** no ritmo atual, quanto vai sobrar (ou faltar) no dia 30. A conta
+  junta o que já aconteceu, os gastos fixos que ainda vão ser lançados e o seu gasto do dia a
+  dia (média dos últimos 3 meses). Aparece no `/resumo` e no Painel da planilha. Se o mês for
+  fechar no vermelho, o bot avisa (no máximo 1 vez por semana).
+- **Responde perguntas sobre os seus gastos:** "quanto gastei com uber em setembro?",
+  "gastei mais com mercado que no mês passado?", "qual mês eu mais gastei com lazer?",
+  "qual meu maior gasto do mês?". A IA só entende a pergunta; a conta é feita pelo bot com
+  os seus dados, então os números nunca são inventados.
+- **"Posso gastar?":** "posso gastar 300 num tênis no itaú?" e ele responde ✅, ⚠️ ou ❌,
+  olhando a previsão do mês, o orçamento da categoria e o limite do cartão.
+- **Lembra você das contas:** na véspera do vencimento, às 9h, avisa a fatura de cada cartão
+  e as contas fixas que você paga na mão, com um botão **Paguei** que já registra. E
+  lembretes avulsos: "me lembra de pagar o IPVA dia 10, 800 reais". `/lembretes` lista tudo.
 - **Registra investimentos:** "investi 500 no tesouro", "resgatei 200 da caixinha". Aporte
   e resgate não contam como gasto nem receita, e o bot soma o total em cada destino.
 - **Orçamento por categoria:** defina um limite mensal (ex.: Alimentação R$ 800) e o bot
   avisa quando passar de 80% e de 100%.
 - **Gastos fixos automáticos:** cadastre aluguel, assinaturas, academia… uma vez, e o bot
-  lança sozinho todo mês no dia certo, avisando com um botão Desfazer.
+  lança sozinho todo mês no dia certo, avisando com um botão Desfazer. Para o que você
+  paga na mão (boleto), escolha o modo lembrete: ele avisa na véspera e só lança no Paguei.
 - **Planilha Google ao vivo (opcional):** tudo que você registra aparece numa planilha
   sua, com um **Painel** escuro com detalhes dourados: números do mês com comparação ao
   mês anterior, gráficos, orçamento e cartões com barras de uso, e uma lista para escolher
@@ -184,9 +198,9 @@ Mande `/cartoes` e toque em **➕ Adicionar**. Os tipos são:
 | 🍽️ VR                 | Vale-refeição, com saldo                                       |
 | 🛒 VA                 | Vale-alimentação, com saldo                                    |
 
-- **No crédito**, o bot pede o **limite** e o **dia de fechamento da fatura** (os dois estão
-  no app do banco). Com eles, ele mostra a fatura e o disponível a cada compra. Dá para pular
-  e configurar depois.
+- **No crédito**, o bot pede o **limite**, o **dia de fechamento** e o **dia de vencimento
+  da fatura** (estão no app do banco). Com eles, ele mostra a fatura e o disponível a cada
+  compra e te lembra do vencimento na véspera. Dá para pular e configurar depois.
 - **Na conta bancária, no VR e no VA**, ele pede o saldo atual (o da conta você pode pular).
   Com ele, o bot acompanha quanto tem na conta: receitas e resgates somam; pix, débito,
   aportes e faturas pagas descontam.
@@ -224,7 +238,8 @@ fatura como paga (o que libera o limite dela).
 | `/cartoes`   | Seus cartões e contas: cadastrar, gerenciar, saldos, fatura e limite |
 | `/resumo`    | O mês: receitas, despesas, sobra, investido e saldos                 |
 | `/orcamento` | Limites mensais por categoria, com aviso aos 80% e 100%              |
-| `/fixos`     | Gastos fixos que o bot lança sozinho todo mês                        |
+| `/fixos`     | Gastos fixos que o bot lança sozinho (ou lembra) todo mês            |
+| `/lembretes` | Contas, faturas e lembretes que vencem nos próximos dias             |
 | `/planilha`  | Link da sua planilha e situação da sincronização                     |
 | `/grafico`   | Link direto para o Painel da planilha (números e gráficos)           |
 | `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
@@ -235,6 +250,18 @@ fatura como paga (o que libera o limite dela).
 **Gastos fixos:** em `/fixos → Adicionar`, mande o gasto como sempre ("aluguel 1200 no pix")
 e diga o dia do mês. Se o computador estiver desligado no dia, o bot lança quando ligar
 (dentro do mesmo mês). Meses inteiros com o bot desligado não são lançados depois.
+Para contas que você paga na mão, toque em **🔔 Prefiro o lembrete** (ou em Gerenciar):
+o bot avisa na véspera, às 9h, e só lança quando você tocar em **Paguei**.
+
+**Perguntas:** é só perguntar como falaria. Exemplos: "quanto gastei com ifood esse mês?",
+"quanto recebi de freela este ano?", "quais foram meus gastos no crédito do itaú?", "com o
+que eu mais gasto?", "posso gastar 200 num jantar?". Cada pergunta usa a IA uma vez, como um
+lançamento.
+
+**Lembretes:** "me lembra de pagar o IPVA dia 10, 800 reais", "lembrar de renovar o seguro
+dia 20". O aviso sai na véspera, às 9h (se já passou, no próprio dia). Com valor, o botão
+**Paguei e registrar** pergunta a forma de pagamento e registra. Os avisos saem com o bot
+ligado: se o computador estiver desligado às 9h, eles saem quando ligar, no mesmo dia.
 
 **Pagar a fatura não é um gasto novo** (os gastos já foram registrados nas compras). Quando
 pagar, use `/cartoes → Gerenciar → o cartão → Paguei a fatura`.
