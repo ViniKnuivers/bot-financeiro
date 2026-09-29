@@ -1,3 +1,4 @@
+import type { JobStateRepository } from '../jobs/job-state.repository.js';
 import type {
   Account,
   AccountPatch,
@@ -231,4 +232,17 @@ export class InMemoryTrashRepository implements TrashRepository {
     this.items.delete(id);
     return Promise.resolve(item);
   }
+}
+
+/** JobState em memória. */
+export function inMemoryJobState(): JobStateRepository & { values: Map<string, string> } {
+  const values = new Map<string, string>();
+  return {
+    values,
+    get: (key) => Promise.resolve(values.get(key) ?? null),
+    set: (key, value) => {
+      values.set(key, value);
+      return Promise.resolve();
+    },
+  };
 }

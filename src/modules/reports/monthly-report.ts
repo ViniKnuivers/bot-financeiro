@@ -1,4 +1,9 @@
-import type { Category, PaymentMethod, TransactionType } from '../../generated/prisma/enums.js';
+import type {
+  Category,
+  InputSource,
+  PaymentMethod,
+  TransactionType,
+} from '../../generated/prisma/enums.js';
 import { normalizeName } from '../accounts/account-kinds.js';
 import { addMonths, splitInstallments } from '../accounts/credit-invoice.js';
 
@@ -18,6 +23,8 @@ export interface ReportTransaction {
   installments: number;
   /** Data (meia-noite UTC, como vem da coluna DATE). */
   occurredAt: Date;
+  /** Origem (a previsão do mês separa os gastos fixos, lançados com "RECURRING"). */
+  source?: InputSource;
 }
 
 export interface ReportContext {

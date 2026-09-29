@@ -237,6 +237,7 @@ describe('aba Dados (base do Painel)', () => {
     const vr = { ...santander, id: 4, name: 'VR', kind: 'MEAL_VOUCHER' as const };
     const content = buildSheetContent(
       data([], {
+        forecast: '🔮 Previsão para 30/09: sobra de R$ 500,00 (no ritmo atual)',
         balances: [
           { account: itau, cents: 230000 },
           { account: vr, cents: 5900 },
@@ -244,9 +245,10 @@ describe('aba Dados (base do Painel)', () => {
       }),
     );
 
-    expect(range(content, "'Dados'!AW1:AX2")).toEqual([
+    expect(range(content, "'Dados'!AW1:AX3")).toEqual([
       ['Atualizado em', '24/09/2026 10:00'],
       ['Saldo em conta', 2300],
+      ['Previsão', '🔮 Previsão para 30/09: sobra de R$ 500,00 (no ritmo atual)'],
     ]);
     expect(range(content, "'Dados'!AT1:AU11").slice(1)).toEqual([
       ['🏦 Itaú (conta)', 2300],

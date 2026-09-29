@@ -18,6 +18,11 @@ import {
   type BudgetThreshold,
 } from '../modules/budgets/budget.service.js';
 import type { RecurringEntry } from '../modules/recurring/recurring.repository.js';
+import {
+  forecastBreakdown,
+  forecastSentence,
+  type Forecast,
+} from '../modules/insights/forecast.js';
 import type { InvestmentPosition, MonthSummary } from '../modules/reports/monthly-report.js';
 import type { AccountBalance } from '../modules/reports/report.service.js';
 import type { PendingDraft } from '../modules/pending/pending.repository.js';
@@ -47,6 +52,12 @@ export const WELCOME = [
   'em "Desfazer" se algo sair errado.',
   '',
   'Investimentos também: "investi 500 no tesouro", "resgatei 200 da caixinha".',
+  '',
+  'E pode me perguntar sobre seus gastos:',
+  '• quanto gastei com uber em setembro?',
+  '• gastei mais com delivery que no mês passado?',
+  '• qual foi meu maior gasto este mês?',
+  '• posso gastar 300 num tênis?',
   '',
   'Comandos:',
   '/resumo: quanto entrou, saiu, sobrou e foi investido no mês',
@@ -302,6 +313,8 @@ export function formatMonthSummary(
   summary: MonthSummary,
   balances: AccountBalance[],
   budgets: BudgetStatus[],
+  /** Só no mês atual: a previsão para o fim do mês. */
+  forecast?: Forecast,
 ): string {
   const lines = [
     `📊 ${capitalize(formatMonthLong(summary.month))}`,
@@ -315,6 +328,10 @@ export function formatMonthSummary(
         : ''),
     `🟢 Livre depois de investir: ${formatCents(summary.freeCents)}`,
   ];
+  if (forecast) {
+    lines.push('', forecastSentence(forecast));
+    if (forecast.basis !== 'none') lines.push(forecastBreakdown(forecast));
+  }
   if (summary.voucherIncomeCents > 0 || summary.voucherExpenseCents > 0) {
     lines.push(
       `🍽️ VR/VA (fora da sobra): entrou ${formatCents(summary.voucherIncomeCents)}, saiu ${formatCents(summary.voucherExpenseCents)}`,

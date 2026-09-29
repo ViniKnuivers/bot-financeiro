@@ -17,6 +17,31 @@ export function toDateOnlyString(instant: Date, timeZone: string): string {
   }).format(instant);
 }
 
+/** Hora (0 a 23) de um instante no fuso informado, para tarefas "a partir das 9h". */
+export function localHour(instant: Date, timeZone: string): number {
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    hourCycle: 'h23',
+  })
+    .formatToParts(instant)
+    .find((part) => part.type === 'hour')?.value;
+  return Number(hour ?? 0);
+}
+
+/** Semana ISO ("2026-W41"), para avisos que saem no máximo uma vez por semana. */
+export function isoWeek(dateOnly: string): string {
+  const date = parseDateOnly(dateOnly);
+  // A semana ISO é a da quinta-feira mais próxima (segunda = início da semana).
+  const weekday = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - weekday + 3);
+  const year = date.getUTCFullYear();
+  const firstThursday = parseDateOnly(`${year}-01-04`);
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - ((firstThursday.getUTCDay() + 6) % 7) + 3);
+  const week = 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * MS_PER_DAY));
+  return `${year}-W${String(week).padStart(2, '0')}`;
+}
+
 export function parseDateOnly(dateOnly: string): Date {
   return new Date(`${dateOnly}T00:00:00.000Z`);
 }

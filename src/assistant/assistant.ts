@@ -18,6 +18,7 @@ import type { Logger } from '../lib/logger.js';
 import { addMonths } from '../modules/accounts/credit-invoice.js';
 import type { AccountService } from '../modules/accounts/account.service.js';
 import type { BudgetService } from '../modules/budgets/budget.service.js';
+import type { InsightsService } from '../modules/insights/insights.service.js';
 import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
 import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
@@ -26,6 +27,7 @@ import type { SheetSyncService } from '../modules/sheets/sheet-sync.service.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
 import { AccountsFlow } from './accounts-flow.js';
 import { BudgetFlow } from './budget-flow.js';
+import { formatInsight } from './insight-replies.js';
 import { ConversationState } from './conversation-state.js';
 import { PaymentFlow, UNDO_PREFIX } from './payment-flow.js';
 import { RecurringFlow } from './recurring-flow.js';
@@ -50,6 +52,8 @@ export interface AssistantDeps {
   recurring: RecurringService;
   reports: ReportService;
   budgets: BudgetService;
+  /** Respostas às perguntas e previsão do mês. */
+  insights: Pick<InsightsService, 'answer' | 'forecast'>;
   logger: Logger;
   /** Relógio injetável, para testar expirações, faturas e gastos fixos. */
   now?: () => Date;
@@ -194,6 +198,16 @@ export class Assistant implements MessageHandler {
     // No áudio, mostrar o que a IA ouviu ajuda a entender um registro errado.
     const heard = source === 'AUDIO' && result.transcript ? formatHeard(result.transcript) : '';
 
+    // Pergunta: a IA só entendeu o que foi perguntado; a conta é do bot.
+    if (result.intent === 'query' && result.query) {
+      const [answer, accounts] = await Promise.all([
+        this.deps.insights.answer(result.query),
+        this.deps.accounts.listAll(),
+      ]);
+      const text = formatInsight(answer, new Map(accounts.map((a) => [a.id, a])));
+      return this.withPendingFooter({ text: heard + text }, null);
+    }
+
     // "clarify" e "other" nunca salvam nada: só repassam a resposta da IA.
     if (result.intent !== 'register') {
       return this.withPendingFooter({ text: heard + result.reply }, null);
@@ -268,9 +282,10 @@ export class Assistant implements MessageHandler {
     const { reports, budgets } = this.deps;
     const summary = await reports.month(month);
     const current = this.today().slice(0, 7);
-    const [balances, status] = await Promise.all([
+    const [balances, status, forecast] = await Promise.all([
       month === current ? reports.balances() : Promise.resolve([]),
       budgets.status(summary),
+      month === current ? this.deps.insights.forecast() : Promise.resolve(undefined),
     ]);
     const navigation = [
       { label: '◀ Mês anterior', id: `${SUMMARY_PREFIX}${addMonths(month, -1)}` },
@@ -278,7 +293,10 @@ export class Assistant implements MessageHandler {
     if (month < current) {
       navigation.push({ label: 'Mês seguinte ▶', id: `${SUMMARY_PREFIX}${addMonths(month, 1)}` });
     }
-    return { text: formatMonthSummary(summary, balances, status), actions: [navigation] };
+    return {
+      text: formatMonthSummary(summary, balances, status, forecast),
+      actions: [navigation],
+    };
   }
 
   handleBudgets(): Promise<OutgoingMessage> {

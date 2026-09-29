@@ -67,6 +67,8 @@ export interface SheetSyncDeps {
   logger: Logger;
   today: () => string;
   timeZone: string;
+  /** Previsão do fim do mês, para a faixa do Painel (opcional). */
+  forecast?: () => Promise<string>;
   now?: () => Date;
   debounceMs?: number;
 }
@@ -364,6 +366,7 @@ export class SheetSyncService {
     return {
       today,
       updatedAt: formatDateTime(now, this.deps.timeZone),
+      forecast: this.deps.forecast ? await this.deps.forecast() : null,
       transactions: all,
       accounts: allAccounts,
       months,

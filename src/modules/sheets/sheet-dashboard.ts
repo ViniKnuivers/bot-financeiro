@@ -61,7 +61,7 @@ export const DATA = {
   latest: `AH1:AL${1 + MAX_LATEST}`,
   cards: `AN1:AR${1 + MAX_CARD_ROWS}`,
   balances: `AT1:AU${1 + MAX_BALANCES}`,
-  status: 'AW1:AX2',
+  status: 'AW1:AX3',
   monthList: `AZ1:AZ${1 + SUMMARY_MONTHS}`,
   /** Tudo que o bot reescreve (as fórmulas de apoio, de BB em diante, ficam). */
   clear: 'A1:AZ400',
@@ -254,6 +254,7 @@ export function dataTabContent(input: SheetData): RangeValues[] {
       values: [
         ['Atualizado em', input.updatedAt],
         ['Saldo em conta', reais(bankCents)],
+        ['Previsão', input.forecast ?? ''],
       ],
     },
     {
@@ -313,19 +314,21 @@ export const PANEL = {
   kpiLabel: 4,
   kpiValue: 5,
   kpiDelta: 6,
-  chartsTop: 8,
-  sections: 27,
-  tableHeader: 28,
-  firstRow: 29,
+  /** Faixa larga com a previsão do fim do mês. */
+  forecast: 8,
+  chartsTop: 10,
+  sections: 29,
+  tableHeader: 30,
+  firstRow: 31,
   budgetRows: 8,
   cardRows: 5,
-  balancesTitle: 35,
+  balancesTitle: 37,
   balanceRows: 4,
-  charts2Top: 41,
-  listsTitle: 60,
-  listsHeader: 61,
-  listsFirst: 62,
-  footer: 71,
+  charts2Top: 43,
+  listsTitle: 62,
+  listsHeader: 63,
+  listsFirst: 64,
+  footer: 73,
 } as const;
 
 /** Altura das linhas (px), da linha 1 em diante; o resto fica com 21 px (padrão). */
@@ -338,7 +341,9 @@ function rowHeights(): [number, number, number][] {
     [p.kpiLabel, p.kpiLabel, 26],
     [p.kpiValue, p.kpiValue, 44],
     [p.kpiDelta, p.kpiDelta, 24],
-    [7, 7, 18],
+    [p.forecast - 1, p.forecast - 1, 12],
+    [p.forecast, p.forecast, 32],
+    [p.forecast + 1, p.forecast + 1, 16],
     [p.chartsTop, p.chartsTop + 17, 21],
     [p.sections - 1, p.sections - 1, 18],
     [p.sections, p.sections, 30],
@@ -403,6 +408,8 @@ export function dashboardCells(options: {
   put(`G${p.title}`, '📅 Mês');
   if (options.includeSelector) put(p.selector, 'Mês atual');
   put(`J${p.title}`, '=IF(Dados!$AX$1="","","Atualizado em "&Dados!$AX$1)');
+  // A previsão é sempre do mês atual (o seletor não muda o futuro).
+  put(`B${p.forecast}`, '=IF(Dados!$AX$3="","",Dados!$AX$3)');
 
   KPIS.forEach((kpi, k) => {
     const col = kpiColumn(k);
@@ -643,6 +650,16 @@ export function dashboardFormatRequests(sheetId: number): SheetRequest[] {
       textFormat: textFormat(THEME.muted, { size: 9 }),
       horizontalAlignment: 'RIGHT',
     }),
+
+    // Faixa da previsão: vermelha quando o mês vai fechar negativo (texto começa com ⚠️).
+    merge(g([p.forecast, p.forecast], [1, 11])),
+    cellFormat(g([p.forecast, p.forecast], [1, 11]), {
+      backgroundColorStyle: color(THEME.card),
+      textFormat: textFormat(THEME.gold, { bold: true, size: 11 }),
+      horizontalAlignment: 'CENTER',
+    }),
+    borders(g([p.forecast, p.forecast], [1, 11]), THEME.border),
+    conditionalText(g([p.forecast, p.forecast], [1, 11]), textStartsWith('⚠️'), THEME.red, true),
   ];
 
   // Cartões com os números do mês.

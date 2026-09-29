@@ -36,7 +36,7 @@ const CATEGORIES_BY_TYPE: Record<TransactionType, readonly Category[]> = {
 };
 
 /** Limite da coluna INTEGER do Postgres. */
-const MAX_AMOUNT_CENTS = 2_147_483_647;
+export const MAX_AMOUNT_CENTS = 2_147_483_647;
 
 /**
  * Uma transação ainda não salva, no formato que a IA devolve.

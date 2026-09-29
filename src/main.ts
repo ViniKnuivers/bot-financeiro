@@ -12,6 +12,7 @@ import { registerWhatsAppWebhook } from './channels/whatsapp/whatsapp-webhook.js
 import { WhatsAppWindow } from './channels/whatsapp/whatsapp-window.js';
 import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
+import { forecastAlertJob } from './jobs/forecast-alert.job.js';
 import { monthlyReportJob } from './jobs/monthly-report.job.js';
 import { recurringJob } from './jobs/recurring.job.js';
 import { sheetRefreshJob } from './jobs/sheet-refresh.job.js';
@@ -29,6 +30,8 @@ import { PrismaPendingRepository } from './modules/pending/pending.repository.js
 import { PrismaRecurringRepository } from './modules/recurring/recurring.repository.js';
 import { RecurringService } from './modules/recurring/recurring.service.js';
 import { ReportService } from './modules/reports/report.service.js';
+import { forecastSentence } from './modules/insights/forecast.js';
+import { InsightsService } from './modules/insights/insights.service.js';
 import { createSheetSync } from './modules/sheets/create-sheet-sync.js';
 import {
   PrismaSheetSnapshotRepository,
@@ -92,6 +95,13 @@ async function main(): Promise<void> {
   const reports = new ReportService(transactionRepository, accounts);
   const budgets = new BudgetService(new PrismaBudgetRepository(prisma));
   const jobState = new PrismaJobStateRepository(prisma);
+  const insights = new InsightsService({
+    transactions: transactionRepository,
+    accounts,
+    recurring,
+    budgets,
+    today,
+  });
 
   // Planilha Google (opcional). As mensagens de falha vão para os chats, que são criados
   // mais abaixo: por isso o envio chama `notifier` só na hora de avisar.
@@ -111,6 +121,7 @@ async function main(): Promise<void> {
       logger: app.log,
       today,
       timeZone: env.APP_TIMEZONE,
+      forecast: async () => forecastSentence(await insights.forecast()),
     },
   });
 
@@ -129,6 +140,7 @@ async function main(): Promise<void> {
     recurring,
     reports,
     budgets,
+    insights,
     logger: app.log,
     timeZone: env.APP_TIMEZONE,
     ...(sheets ? { sheets } : {}),
@@ -196,6 +208,13 @@ async function main(): Promise<void> {
         onChange: () => sheets?.requestSync(),
       }),
       ...(sheets ? [sheetRefreshJob(sheets)] : []),
+      forecastAlertJob({
+        insights,
+        jobState,
+        notifier,
+        now: () => new Date(),
+        timeZone: env.APP_TIMEZONE,
+      }),
       monthlyReportJob({
         jobState,
         notifier,

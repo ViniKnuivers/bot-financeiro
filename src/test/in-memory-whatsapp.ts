@@ -1,4 +1,3 @@
-import type { JobStateRepository } from '../jobs/job-state.repository.js';
 import {
   MediaTooLargeError,
   type WhatsAppApi,
@@ -45,15 +44,4 @@ export class InMemoryWhatsApp implements WhatsAppApi {
   }
 }
 
-/** JobState em memória. */
-export function inMemoryJobState(): JobStateRepository & { values: Map<string, string> } {
-  const values = new Map<string, string>();
-  return {
-    values,
-    get: (key) => Promise.resolve(values.get(key) ?? null),
-    set: (key, value) => {
-      values.set(key, value);
-      return Promise.resolve();
-    },
-  };
-}
+export { inMemoryJobState } from './in-memory-repositories.js';

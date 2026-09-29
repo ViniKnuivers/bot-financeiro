@@ -40,6 +40,8 @@ export interface SheetData {
   today: string;
   /** Momento desta sincronização, para o "Atualizado em" do Painel ("25/09/2026 16:40"). */
   updatedAt: string;
+  /** Frase da previsão do fim do mês, para a faixa do Painel (null sem previsão). */
+  forecast?: string | null;
   transactions: readonly Transaction[];
   /** Todas as contas, inclusive arquivadas (lançamentos antigos usam o nome). */
   accounts: readonly Account[];

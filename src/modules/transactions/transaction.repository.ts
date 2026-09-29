@@ -134,6 +134,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
         accountId: true,
         installments: true,
         occurredAt: true,
+        source: true,
       },
     });
   }

@@ -1,6 +1,7 @@
 import type { AccountHint } from '../ai/transaction-parser.js';
 import type { AccountKind } from '../generated/prisma/enums.js';
 import { addDays, weekdayName } from '../lib/dates.js';
+import { addMonths, daysInMonth } from '../modules/accounts/credit-invoice.js';
 
 /**
  * System prompt do interpretador de lançamentos.
@@ -54,6 +55,21 @@ function recentCalendar(today: string): string {
   return lines.join('\n');
 }
 
+/** Períodos comuns já calculados, para as perguntas ("mês passado", "este ano"). */
+function periodTable(today: string): string {
+  const month = today.slice(0, 7);
+  const previous = addMonths(month, -1);
+  const lastDay = (m: string) => `${m}-${String(daysInMonth(m)).padStart(2, '0')}`;
+  return [
+    `- este mês: ${month}-01 a ${today}`,
+    `- mês passado: ${previous}-01 a ${lastDay(previous)}`,
+    `- últimos 3 meses: ${addMonths(month, -2)}-01 a ${today}`,
+    `- últimos 30 dias: ${addDays(today, -29)} a ${today}`,
+    `- este ano: ${today.slice(0, 4)}-01-01 a ${today}`,
+    `- ano passado: ${Number(today.slice(0, 4)) - 1}-01-01 a ${Number(today.slice(0, 4)) - 1}-12-31`,
+  ].join('\n');
+}
+
 function destinationList(destinations: readonly string[]): string {
   if (destinations.length === 0) return 'Ainda não há destinos cadastrados.';
   return `Destinos já usados (reuse o MESMO nome quando for o mesmo investimento): ${destinations
@@ -83,10 +99,13 @@ ${recentCalendar(today)}
   ou está ambígua a ponto de você precisar chutar. Nesse caso "transactions" deve ser [] e
   "reply" deve ser UMA pergunta objetiva. Se uma das várias transações não tiver valor,
   use "clarify" para a mensagem inteira (não registre só uma parte).
-- "other": não é um lançamento (saudação, agradecimento, pergunta, pedido de relatório,
+- "query": uma PERGUNTA sobre os próprios gastos, receitas ou investimentos ("quanto gastei
+  com uber em setembro?", "qual meu maior gasto?", "posso gastar 300?"). "transactions" deve
+  ser [] e "query" deve ser preenchido (veja a seção # query). O app calcula a resposta.
+- "other": não é um lançamento nem uma pergunta sobre os dados (saudação, agradecimento,
   pedido para desfazer/apagar algo). "transactions" deve ser [] e "reply" uma resposta curta.
   Para pedidos de desfazer, oriente a usar o botão "Desfazer" ou o comando /desfazer.
-  Para relatórios ou consultas, diga que por enquanto dá para ver os últimos lançamentos com /ultimos.
+Em todo intent que não seja "query", "query" deve ser null.
   PAGAR A FATURA do cartão ("paguei a fatura do nubank") NÃO é uma despesa nova (os gastos
   já foram registrados na compra): use "other" e oriente a usar /cartoes.
 
@@ -172,6 +191,32 @@ deixe "paymentMethod" null; se tiver um só (ex.: um cartão de crédito), use a
   Se hoje for esse dia da semana, é hoje.
 - "dia 5": dia 5 do mês atual se já passou ou é hoje; senão, do mês anterior.
 - Datas futuras só se o usuário disser explicitamente ("amanhã", "dia 30 vou pagar").
+
+# query (só quando intent = "query")
+Traduza a pergunta em filtros. NUNCA calcule nem invente valores: o app faz a conta.
+- kind:
+  - "total": quanto gastei/recebi/investi ("quanto gastei com uber em setembro?").
+  - "compare": dois períodos ("gastei mais com delivery que no mês passado?"). periodStart/
+    periodEnd = o período principal (ex.: este mês); compareStart/compareEnd = o outro.
+  - "ranking": qual mês ou categoria teve mais ("qual mês eu mais gastei com lazer?" →
+    rankBy "month"; "com o que eu mais gasto?" → rankBy "category").
+  - "list": mostrar lançamentos ("quais foram meus gastos no ifood?" → sort "recent",
+    limit 10; "qual meu maior gasto de outubro?" → sort "largest", limit 1; "os 3 maiores
+    gastos do mês" → sort "largest", limit 3).
+  - "can_afford": "posso gastar/comprar X?", "cabe um tênis de 300?". amountCents = o valor.
+    Período: este mês. Se citar categoria, cartão ou forma de pagamento, preencha.
+- type: null para despesas (o padrão). "INCOME" para "quanto recebi/ganhei", "INVESTMENT"
+  para "quanto investi/guardei", "REDEMPTION" para resgates.
+- categories: categorias citadas por conceito ("mercado", "transporte", "delivery" →
+  ALIMENTACAO, "lazer"). [] quando não houver.
+- text: nome específico de loja, app ou serviço, em minúsculas ("uber", "ifood", "netflix",
+  "shopee"). null quando não houver. Não repita em text o que já está em categories.
+- account e paymentMethod: como nas transações, só se citados.
+- Período: se não for citado, use "este mês" (em "ranking" sem período, os últimos 12
+  meses). Nome de mês sem ano ("setembro") = o mais recente que já começou. Períodos comuns:
+${periodTable(today)}
+- rankBy, sort, limit, compareStart, compareEnd, amountCents: null quando não se aplicam.
+- reply: uma frase curta SEM números (ex.: "Deixa eu ver!"); o app mostra a resposta.
 
 # transcript
 Se a entrada for áudio, a transcrição literal do que foi dito. Se for texto, null.

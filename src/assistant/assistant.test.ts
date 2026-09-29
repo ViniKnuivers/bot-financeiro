@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Query } from '../ai/parse-result.schema.js';
 import {
   TransactionParserError,
   type ParseResult,
@@ -18,6 +19,8 @@ import {
 } from '../test/in-memory-repositories.js';
 import { InMemoryTransactionRepository } from '../test/in-memory-transaction-repository.js';
 import { BudgetService } from '../modules/budgets/budget.service.js';
+import { InsightsService } from '../modules/insights/insights.service.js';
+import { toDateOnlyString } from '../lib/dates.js';
 import { RecurringService } from '../modules/recurring/recurring.service.js';
 import { ReportService } from '../modules/reports/report.service.js';
 import { CHAT_STATE_TTL_MS } from './conversation-state.js';
@@ -40,7 +43,14 @@ function draft(overrides: Partial<TransactionDraft> = {}): TransactionDraft {
 }
 
 function result(overrides: Partial<ParseResult>): ParseResult {
-  return { intent: 'register', transactions: [], transcript: null, reply: 'ok', ...overrides };
+  return {
+    intent: 'register',
+    transactions: [],
+    query: null,
+    transcript: null,
+    reply: 'ok',
+    ...overrides,
+  };
 }
 
 function setup() {
@@ -60,15 +70,24 @@ function setup() {
   const transactionService = new TransactionService(transactions);
   const budgets = new InMemoryBudgetRepository();
   const recurringRepository = new InMemoryRecurringRepository();
+  const recurring = new RecurringService(recurringRepository, transactionService);
+  const budgetService = new BudgetService(budgets);
   const assistant = new Assistant({
     parser: { parse },
     transactions: transactionService,
     accounts,
     pending,
     chatState,
-    recurring: new RecurringService(recurringRepository, transactionService),
+    recurring,
     reports: new ReportService(transactions, accounts),
-    budgets: new BudgetService(budgets),
+    budgets: budgetService,
+    insights: new InsightsService({
+      transactions,
+      accounts,
+      recurring,
+      budgets: budgetService,
+      today: () => toDateOnlyString(clock(), 'America/Sao_Paulo'),
+    }),
     logger,
     now: clock,
   });
@@ -798,6 +817,137 @@ describe('Assistant', () => {
       expect(summary.text).toMatch(/Livre depois de investir: R\$\s1\.550,00/);
       expect(summary.text).toMatch(/VR\/VA \(fora da sobra\): entrou R\$\s0,00, saiu R\$\s50,00/);
       expect(summary.actions?.flat().map((a) => a.id)).toEqual(['rs:2026-08']);
+      // Sem histórico: ritmo do mês (R$ 1.200 em 24 dias = R$ 50/dia × 6 dias que faltam).
+      expect(summary.text).toMatch(/Previsão para 30\/09: sobra de R\$\s2\.250,00/);
+      expect(summary.text).toMatch(/R\$\s1\.200,00 já foram \+ R\$\s300,00 do dia a dia/);
+    });
+  });
+
+  describe('perguntas', () => {
+    function query(overrides: Partial<Query>): ParseResult {
+      return result({
+        intent: 'query',
+        reply: 'Deixa eu ver!',
+        query: {
+          kind: 'total',
+          type: null,
+          categories: [],
+          text: null,
+          account: null,
+          paymentMethod: null,
+          periodStart: '2026-09-01',
+          periodEnd: '2026-09-30',
+          compareStart: null,
+          compareEnd: null,
+          rankBy: null,
+          sort: null,
+          limit: null,
+          amountCents: null,
+          ...overrides,
+        },
+      });
+    }
+
+    it('a IA só entende a pergunta; o total vem do banco e nada é salvo', async () => {
+      const { parse, transactions, say } = setup();
+      parse
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({ description: 'Uber', amountCents: 1850, category: 'TRANSPORTE' }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({ description: 'Uber', amountCents: 2200, category: 'TRANSPORTE' }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(query({ text: 'uber' }));
+      await say('uber 18,50');
+      await say('uber 22');
+
+      const reply = await say('quanto gastei com uber em setembro?');
+
+      expect(reply.text).toMatch(/Uber em setembro de 2026: R\$\s40,50 \(2 lançamentos\)/);
+      expect(transactions.rows).toHaveLength(2);
+    });
+
+    it('maior gasto do mês', async () => {
+      const { parse, say } = setup();
+      parse
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({ description: 'Mercado', amountCents: 45000, category: 'MERCADO' }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          result({ transactions: [draft({ description: 'Café', amountCents: 700 })] }),
+        )
+        .mockResolvedValueOnce(query({ kind: 'list', sort: 'largest', limit: 1 }));
+      await say('mercado 450');
+      await say('café 7');
+
+      const reply = await say('qual meu maior gasto de setembro?');
+
+      expect(reply.text).toMatch(
+        /Maior gasto em setembro de 2026:\n24\/09 · Mercado · R\$\s450,00/,
+      );
+    });
+
+    it('posso gastar: junta previsão, orçamento e limite do cartão', async () => {
+      const { parse, accounts, budgets, say } = setup();
+      await withUserAccounts(accounts);
+      const [itauCredit] = (await accounts.listActive()).filter(
+        (a) => a.name === 'Itaú' && a.kind === 'CREDIT_CARD',
+      );
+      if (!itauCredit) throw new Error('cartão não criado');
+      await accounts.configureCredit(itauCredit, { creditLimitCents: 100000, closingDay: 5 });
+      await budgets.upsert('COMPRAS', 40000);
+      parse
+        .mockResolvedValueOnce(
+          result({
+            transactions: [
+              draft({
+                type: 'INCOME',
+                category: 'SALARIO',
+                amountCents: 300000,
+                paymentMethod: null,
+              }),
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          query({
+            kind: 'can_afford',
+            amountCents: 30000,
+            categories: ['COMPRAS'],
+            account: 'Itaú',
+            paymentMethod: 'CREDITO',
+          }),
+        );
+      await say('salário 3000');
+
+      const reply = await say('posso gastar 300 num tênis no itaú?');
+
+      // 75% do orçamento, limite sobra, sobra prevista positiva: cabe.
+      expect(reply.text).toContain('✅ Cabe!');
+      expect(reply.text).toMatch(/Previsão de sobra em setembro: R\$\s3\.000,00 → R\$\s2\.700,00/);
+      expect(reply.text).toContain('🛍️ Compras: 75% do orçamento depois dessa compra');
+      expect(reply.text).toMatch(/Itaú: sobram R\$\s700,00 de limite/);
+    });
+
+    it('cartão que não existe: explica em vez de dizer "nenhum"', async () => {
+      const { parse, say } = setup();
+      parse.mockResolvedValueOnce(query({ account: 'Nubank' }));
+
+      const reply = await say('quanto gastei no nubank?');
+
+      expect(reply.text).toContain('Não encontrei o cartão ou conta "Nubank"');
     });
   });
 
