@@ -72,8 +72,7 @@ export class TelegramChannel implements MessageChannel {
       await sendReply(ctx, await handler.handleSpreadsheet());
     });
     this.bot.command('relatorio', async (ctx) => {
-      await ctx.replyWithChatAction('upload_document');
-      await sendReply(ctx, await handler.handleReport());
+      await sendReply(ctx, await keepAction(ctx, 'upload_document', () => handler.handleReport()));
     });
     this.bot.command('backup', async (ctx) => {
       await sendReply(ctx, await handler.handleBackup());
@@ -94,8 +93,9 @@ export class TelegramChannel implements MessageChannel {
         return;
       }
       // Indicador "digitando..." enquanto processa (a IA pode levar alguns segundos).
-      await ctx.replyWithChatAction('typing');
-      const reply = await handler.handleText({ text, receivedAt: new Date(date * 1000) });
+      const reply = await keepAction(ctx, 'typing', () =>
+        handler.handleText({ text, receivedAt: new Date(date * 1000) }),
+      );
       await sendReply(ctx, reply);
     });
 
@@ -109,18 +109,17 @@ export class TelegramChannel implements MessageChannel {
         return;
       }
 
-      await ctx.replyWithChatAction('typing');
-      const file = await ctx.api.getFile(voice.file_id);
-      if (!file.file_path) {
-        throw new Error('Telegram não retornou file_path para o áudio');
-      }
-      const audio = await downloadTelegramFile(token, file.file_path);
-
-      const reply = await handler.handleAudio({
-        audio,
-        // O Telegram grava voz em OGG/Opus; mime_type pode vir ausente em clientes antigos.
-        mimeType: voice.mime_type ?? 'audio/ogg',
-        receivedAt: new Date(date * 1000),
+      const reply = await keepAction(ctx, 'typing', async () => {
+        const file = await ctx.api.getFile(voice.file_id);
+        if (!file.file_path) {
+          throw new Error('Telegram não retornou file_path para o áudio');
+        }
+        return handler.handleAudio({
+          audio: await downloadTelegramFile(token, file.file_path),
+          // O Telegram grava voz em OGG/Opus; mime_type pode vir ausente em clientes antigos.
+          mimeType: voice.mime_type ?? 'audio/ogg',
+          receivedAt: new Date(date * 1000),
+        });
       });
       await sendReply(ctx, reply);
     });
@@ -130,14 +129,16 @@ export class TelegramChannel implements MessageChannel {
       const { photo, caption, date } = ctx.message;
       const largest = photo.at(-1);
       if (!largest) return;
-      await ctx.replyWithChatAction('typing');
-      const file = await ctx.api.getFile(largest.file_id);
-      if (!file.file_path) throw new Error('Telegram não retornou file_path para a foto');
-      const reply = await handler.handleImage({
-        image: await downloadTelegramFile(token, file.file_path),
-        mimeType: 'image/jpeg',
-        ...(caption ? { caption } : {}),
-        receivedAt: new Date(date * 1000),
+      // Ler a foto pode levar de 10 s a 1 min (se o modelo principal estiver ocupado).
+      const reply = await keepAction(ctx, 'typing', async () => {
+        const file = await ctx.api.getFile(largest.file_id);
+        if (!file.file_path) throw new Error('Telegram não retornou file_path para a foto');
+        return handler.handleImage({
+          image: await downloadTelegramFile(token, file.file_path),
+          mimeType: 'image/jpeg',
+          ...(caption ? { caption } : {}),
+          receivedAt: new Date(date * 1000),
+        });
       });
       await sendReply(ctx, reply);
     });
@@ -154,14 +155,15 @@ export class TelegramChannel implements MessageChannel {
         await ctx.reply('Essa imagem é grande demais (máximo 10 MB). Pode mandar como foto?');
         return;
       }
-      await ctx.replyWithChatAction('typing');
-      const file = await ctx.api.getFile(document.file_id);
-      if (!file.file_path) throw new Error('Telegram não retornou file_path para a imagem');
-      const reply = await handler.handleImage({
-        image: await downloadTelegramFile(token, file.file_path),
-        mimeType,
-        ...(caption ? { caption } : {}),
-        receivedAt: new Date(date * 1000),
+      const reply = await keepAction(ctx, 'typing', async () => {
+        const file = await ctx.api.getFile(document.file_id);
+        if (!file.file_path) throw new Error('Telegram não retornou file_path para a imagem');
+        return handler.handleImage({
+          image: await downloadTelegramFile(token, file.file_path),
+          mimeType,
+          ...(caption ? { caption } : {}),
+          receivedAt: new Date(date * 1000),
+        });
       });
       await sendReply(ctx, reply);
     });
@@ -177,7 +179,10 @@ export class TelegramChannel implements MessageChannel {
     this.bot.on('callback_query:data', async (ctx) => {
       // Responde logo ao Telegram para o botão parar de mostrar "carregando".
       await ctx.answerCallbackQuery();
-      const reply = await handler.handleAction(ctx.callbackQuery.data);
+      // Alguns botões demoram (PDF de outro mês, backup agora): mantém o "digitando...".
+      const reply = await keepAction(ctx, 'typing', () =>
+        handler.handleAction(ctx.callbackQuery.data),
+      );
       await applyActionReply(ctx, reply);
     });
 
@@ -245,6 +250,31 @@ export class TelegramChannel implements MessageChannel {
     if (this.bot.isRunning()) {
       await this.bot.stop();
     }
+  }
+}
+
+/** O Telegram apaga o "digitando..." em 5 s; renovar antes disso. */
+export const CHAT_ACTION_REFRESH_MS = 4000;
+
+/**
+ * Mostra o "digitando..." (ou "enviando arquivo...") durante todo o trabalho, e não só nos
+ * primeiros 5 s: ler uma foto ou gerar um PDF pode levar bem mais que isso.
+ */
+export async function keepAction<T>(
+  ctx: Pick<Context, 'replyWithChatAction'>,
+  action: 'typing' | 'upload_document',
+  work: () => Promise<T>,
+): Promise<T> {
+  const ping = () => {
+    // Falhar ao mostrar o indicador não pode atrapalhar a resposta.
+    ctx.replyWithChatAction(action).catch(() => undefined);
+  };
+  ping();
+  const timer = setInterval(ping, CHAT_ACTION_REFRESH_MS);
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
   }
 }
 
