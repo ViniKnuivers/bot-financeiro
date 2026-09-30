@@ -1,4 +1,4 @@
-import { Bot, GrammyError, InlineKeyboard, type Context } from 'grammy';
+import { Bot, GrammyError, InlineKeyboard, InputFile, type Api, type Context } from 'grammy';
 import type {
   ActionReply,
   MessageChannel,
@@ -67,6 +67,10 @@ export class TelegramChannel implements MessageChannel {
     });
     this.bot.command('planilha', async (ctx) => {
       await sendReply(ctx, await handler.handleSpreadsheet());
+    });
+    this.bot.command('relatorio', async (ctx) => {
+      await ctx.replyWithChatAction('upload_document');
+      await sendReply(ctx, await handler.handleReport());
     });
     this.bot.command('grafico', async (ctx) => {
       await sendReply(ctx, await handler.handleCharts());
@@ -161,6 +165,7 @@ export class TelegramChannel implements MessageChannel {
       { command: 'grafico', description: 'Gráficos na planilha' },
       { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
       { command: 'lembretes', description: 'Contas e faturas que vencem logo' },
+      { command: 'relatorio', description: 'Relatório do mês em PDF' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
       { command: 'cartoes', description: 'Seus cartões, contas e saldos' },
       { command: 'pendentes', description: 'Lançamentos esperando resposta' },
@@ -183,12 +188,7 @@ export class TelegramChannel implements MessageChannel {
 
   /** Mensagem por iniciativa do bot. Em chat privado, o id do chat é o id do usuário. */
   async notify(message: OutgoingMessage): Promise<void> {
-    const keyboard = keyboardFor(message);
-    await this.bot.api.sendMessage(
-      this.allowedUserId,
-      message.text,
-      keyboard ? { reply_markup: keyboard } : undefined,
-    );
+    await send(this.bot.api, this.allowedUserId, message);
   }
 
   async stop(): Promise<void> {
@@ -204,10 +204,35 @@ function keyboardFor(message: OutgoingMessage): InlineKeyboard | undefined {
   return InlineKeyboard.from(rows.map((row) => row.map((a) => InlineKeyboard.text(a.label, a.id))));
 }
 
-/** Envia a resposta; cada linha de ações vira uma linha de botões inline. */
-function sendReply(ctx: Context, message: OutgoingMessage) {
+/** Limite da legenda de um arquivo no Telegram. */
+const CAPTION_LIMIT = 1024;
+
+/**
+ * Envia uma mensagem: texto com botões ou, com anexo, o arquivo com o texto de legenda
+ * (texto longo demais para legenda vai antes, numa mensagem separada).
+ */
+export async function send(api: Api, chatId: number, message: OutgoingMessage): Promise<void> {
   const keyboard = keyboardFor(message);
-  return ctx.reply(message.text, keyboard ? { reply_markup: keyboard } : undefined);
+  const markup = keyboard ? { reply_markup: keyboard } : {};
+  if (!message.document) {
+    await api.sendMessage(chatId, message.text, markup);
+    return;
+  }
+  const file = new InputFile(message.document.data, message.document.filename);
+  if (message.text.length <= CAPTION_LIMIT) {
+    await api.sendDocument(chatId, file, { caption: message.text, ...markup });
+    return;
+  }
+  await api.sendMessage(chatId, message.text);
+  await api.sendDocument(chatId, file, markup);
+}
+
+/** Envia a resposta; cada linha de ações vira uma linha de botões inline. */
+async function sendReply(ctx: Context, message: OutgoingMessage): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (chatId === undefined) throw new Error('mensagem sem chat');
+  if (message.document) await ctx.replyWithChatAction('upload_document');
+  await send(ctx.api, chatId, message);
 }
 
 /**
@@ -217,6 +242,11 @@ function sendReply(ctx: Context, message: OutgoingMessage) {
  *   novo por engano (ex.: Desfazer).
  */
 async function applyActionReply(ctx: Context, reply: ActionReply): Promise<void> {
+  // Arquivo não cabe numa edição de mensagem: vai como mensagem nova.
+  if (reply.document) {
+    await sendReply(ctx, reply);
+    return;
+  }
   const original = ctx.callbackQuery?.message?.text;
   if (reply.mode === 'append' && !original) {
     await sendReply(ctx, reply);

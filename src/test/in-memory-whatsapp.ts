@@ -38,9 +38,13 @@ export class InMemoryWhatsApp implements WhatsAppApi {
     return Promise.resolve(media);
   }
 
-  /** Textos enviados (o corpo, no caso de botões e listas). */
+  /** Textos enviados (o corpo, no caso de botões e listas; a legenda, nos documentos). */
   texts(): string[] {
-    return this.sent.map(({ message }) => (message.kind === 'text' ? message.text : message.body));
+    return this.sent.map(({ message }) => {
+      if (message.kind === 'text') return message.text;
+      if (message.kind === 'document') return message.caption ?? `[${message.filename}]`;
+      return message.body;
+    });
   }
 }
 

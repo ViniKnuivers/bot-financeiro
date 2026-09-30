@@ -3,7 +3,8 @@ import type { JobStateRepository } from '../../jobs/job-state.repository.js';
 import type { Logger } from '../../lib/logger.js';
 import { accountLabel } from '../accounts/account-kinds.js';
 import type { AccountService } from '../accounts/account.service.js';
-import { invoiceTotalsByMonth } from '../accounts/credit-invoice.js';
+import { addMonths, invoiceTotalsByMonth } from '../accounts/credit-invoice.js';
+import { formatMonthLong, formatMonthShort, toSheetSerial } from '../../lib/dates.js';
 import type { BudgetService } from '../budgets/budget.service.js';
 import { monthOf } from '../reports/monthly-report.js';
 import type { ReportService } from '../reports/report.service.js';
@@ -25,6 +26,10 @@ import {
   dashboardChartRequests,
   dashboardClearRanges,
   PANEL,
+  REPORT_PERIOD,
+  REPORT_TABLE,
+  REPORT_VARIANT,
+  reportPrintRange,
 } from './sheet-dashboard.js';
 import { a1, SUMMARY_MONTHS, type TabKey } from './sheet-layout.js';
 import {
@@ -71,6 +76,14 @@ export interface SheetSyncDeps {
   forecast?: () => Promise<string>;
   now?: () => Date;
   debounceMs?: number;
+  /** Espera para a planilha recalcular antes de exportar o PDF (testes usam 0). */
+  recalcDelayMs?: number;
+}
+
+/** Um arquivo pronto para mandar no chat. */
+export interface GeneratedFile {
+  filename: string;
+  data: Buffer;
 }
 
 export interface SheetSyncStatus {
@@ -168,6 +181,48 @@ export class SheetSyncService {
         return '⚠️ O Google Sheets não está respondendo. Continuo registrando tudo e sincronizo sozinho quando ele voltar.';
       case 'unexpected':
         return '⚠️ A planilha não está sincronizando por um erro inesperado (detalhes no log). Seus lançamentos continuam salvos no bot.';
+    }
+  }
+
+  /**
+   * PDF do Painel + lançamentos de um mês ("YYYY-MM"), pela aba oculta Relatório: sincroniza,
+   * escreve o mês (sem mexer no seletor do Painel), espera recalcular e exporta. A aba fica
+   * visível só durante a exportação, porque o Google exporta aba oculta em branco.
+   */
+  async reportPdf(month: string): Promise<GeneratedFile> {
+    await this.syncNow({ force: true });
+    const { lastError } = this.status();
+    if (lastError) throw lastError;
+    const ids = this.ids;
+    if (!ids) throw new Error('planilha ainda não sincronizada');
+
+    const { gateway } = this.deps;
+    await gateway.replaceValues(
+      [],
+      [
+        { range: a1('report', PANEL.selector), values: [[formatMonthShort(month)]] },
+        {
+          range: a1('data', REPORT_PERIOD),
+          values: [[toSheetSerial(`${month}-01`)], [toSheetSerial(`${addMonths(month, 1)}-01`)]],
+        },
+      ],
+    );
+    const visibility = (hidden: boolean) => ({
+      updateSheetProperties: { properties: { sheetId: ids.report, hidden }, fields: 'hidden' },
+    });
+    await gateway.batchUpdate([visibility(false)]);
+    try {
+      await sleep(this.deps.recalcDelayMs ?? 2500);
+      const list = await gateway.readValues(
+        a1('report', `B${REPORT_TABLE.first}:B${REPORT_TABLE.last}`),
+      );
+      const data = await gateway.exportPdf(ids.report, reportPrintRange(list.length));
+      const [name = '', year = ''] = formatMonthLong(month).split(' de ');
+      return { filename: `relatorio-${name}-${year}.pdf`, data };
+    } catch (error) {
+      throw toSheetsError(error);
+    } finally {
+      await gateway.batchUpdate([visibility(true)]);
     }
   }
 
@@ -293,8 +348,13 @@ export class SheetSyncService {
     const labels = accounts.map((account) => accountLabel(account));
     const signature = JSON.stringify({ theme: THEME_VERSION, cardCount, labels });
     const chartIds = tabs.find((tab) => tab.sheetId === ids.dashboard)?.chartIds ?? [];
+    const reportChartIds = tabs.find((tab) => tab.sheetId === ids.report)?.chartIds ?? [];
     const structureChanged = (await jobState.get(STRUCTURE_KEY)) !== signature;
-    const rebuild = created.length > 0 || chartIds.length === 0 || structureChanged;
+    const rebuild =
+      created.length > 0 ||
+      chartIds.length === 0 ||
+      reportChartIds.length === 0 ||
+      structureChanged;
 
     const requests = [
       ...(this.formatted && !rebuild ? [] : formattingRequests(ids)),
@@ -302,17 +362,25 @@ export class SheetSyncService {
       ...(rebuild || !this.formatted ? validationRequests(ids, labels) : []),
       ...(rebuild ? restyleRequests(ids, tabs, timeZone) : []),
       ...(rebuild ? dashboardChartRequests(ids, chartIds, cardCount) : []),
+      ...(rebuild ? dashboardChartRequests(ids, reportChartIds, cardCount, REPORT_VARIANT) : []),
     ];
     await gateway.batchUpdate(requests);
     if (rebuild) {
       // O mês escolhido no Painel só é escrito se estiver vazio: depois, a escolha é sua.
       const selector = await gateway.readValues(a1('dashboard', PANEL.selector));
       await gateway.writeFormulas(
-        dashboardClearRanges(),
-        dashboardCells({
-          cardsWithInvoices: cardCount,
-          includeSelector: selector.flat().every((cell) => cell === '' || cell == null),
-        }),
+        [...dashboardClearRanges(), ...dashboardClearRanges(REPORT_VARIANT)],
+        [
+          ...dashboardCells({
+            cardsWithInvoices: cardCount,
+            includeSelector: selector.flat().every((cell) => cell === '' || cell == null),
+          }),
+          ...dashboardCells({
+            cardsWithInvoices: cardCount,
+            includeSelector: false,
+            variant: REPORT_VARIANT,
+          }),
+        ],
       );
     }
     this.formatted = true;
@@ -391,4 +459,8 @@ function formatDateTime(instant: Date, timeZone: string): string {
   })
     .format(instant)
     .replace(',', '');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

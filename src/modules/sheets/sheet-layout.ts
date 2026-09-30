@@ -11,6 +11,7 @@ export const TABS = {
   cards: 'Cartões e vales',
   investments: 'Investimentos',
   data: 'Dados',
+  report: 'Relatório',
 } as const;
 
 export type TabKey = keyof typeof TABS;
@@ -24,6 +25,7 @@ export const TAB_ORDER: readonly TabKey[] = [
   'cards',
   'investments',
   'data',
+  'report',
 ];
 
 /** Abas só de leitura (calculadas pelo bot): editar à mão mostra um aviso. */
@@ -34,6 +36,7 @@ export const READ_ONLY_TABS: readonly TabKey[] = [
   'cards',
   'investments',
   'data',
+  'report',
 ];
 
 /** Abas que versões antigas do bot criavam e que ele mesmo remove (os gráficos foram para o Painel). */

@@ -26,6 +26,7 @@ import type { PendingRepository } from '../modules/pending/pending.repository.js
 import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
 import type { ReportService } from '../modules/reports/report.service.js';
 import type { SheetSyncService } from '../modules/sheets/sheet-sync.service.js';
+import { SheetsError } from '../modules/sheets/spreadsheet-gateway.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
 import { AccountsFlow } from './accounts-flow.js';
 import { BudgetFlow } from './budget-flow.js';
@@ -35,6 +36,7 @@ import { PaymentFlow, UNDO_PREFIX } from './payment-flow.js';
 import { RecurringFlow } from './recurring-flow.js';
 import { RemindersFlow } from './reminders-flow.js';
 import {
+  formatMonth,
   formatHeard,
   formatLatest,
   formatMonthSummary,
@@ -73,12 +75,13 @@ export interface AssistantDeps {
 /** O que o assistente usa da sincronização com a planilha. */
 export type SpreadsheetLink = Pick<
   SheetSyncService,
-  'url' | 'status' | 'syncNow' | 'requestSync' | 'failureMessage' | 'handleAction'
+  'url' | 'status' | 'syncNow' | 'requestSync' | 'failureMessage' | 'handleAction' | 'reportPdf'
 >;
 
 const SPREADSHEET_SYNC_ACTION = 'sh:sync';
 
 const SUMMARY_PREFIX = 'rs:';
+const REPORT_PREFIX = 'rp:';
 
 /**
  * O "cérebro" do bot, independente de canal. Recebe a mensagem e decide o caminho:
@@ -251,6 +254,12 @@ export class Assistant implements MessageHandler {
 
   private async routeAction(actionId: string): Promise<ActionReply> {
     if (actionId.startsWith(UNDO_PREFIX)) return this.undoBatch(actionId);
+    if (actionId.startsWith(REPORT_PREFIX)) {
+      const month = actionId.slice(REPORT_PREFIX.length);
+      if (/^\d{4}-\d{2}$/.test(month)) {
+        return { mode: 'replace', ...(await this.handleReport(month)) };
+      }
+    }
     if (actionId.startsWith(SUMMARY_PREFIX)) {
       const month = actionId.slice(SUMMARY_PREFIX.length);
       if (/^\d{4}-\d{2}$/.test(month))
@@ -357,6 +366,39 @@ export class Assistant implements MessageHandler {
     });
   }
 
+  /**
+   * Relatório em PDF (Painel + todos os lançamentos) de um mês, pela planilha. Botões para
+   * os dois meses anteriores.
+   */
+  async handleReport(month = this.today().slice(0, 7)): Promise<OutgoingMessage> {
+    const { sheets, logger } = this.deps;
+    if (!sheets) {
+      return {
+        text: '📄 O relatório em PDF é gerado a partir da planilha Google, que ainda não está configurada. O passo a passo está no README, seção "Planilha Google".',
+      };
+    }
+    const title = capitalizeFirst(formatMonthLong(month));
+    const previous = [1, 2].map((n) => addMonths(month, -n));
+    const actions = [
+      previous.map((m) => ({ label: `◀ ${formatMonth(m)}`, id: `${REPORT_PREFIX}${m}` })),
+    ];
+    try {
+      const document = await sheets.reportPdf(month);
+      logger.info({ month, bytes: document.data.length }, 'relatório em PDF gerado');
+      return {
+        text: `📄 Relatório de ${title}: o Painel e todos os lançamentos do mês.`,
+        document,
+        actions,
+      };
+    } catch (error) {
+      logger.error({ err: error, month }, 'relatório: falha ao gerar o PDF');
+      return {
+        text: `⚠️ Não consegui gerar o PDF de ${title}. ${reportFailure(error, sheets)}`,
+        actions,
+      };
+    }
+  }
+
   handleCharts(): Promise<OutgoingMessage> {
     const { sheets } = this.deps;
     if (!sheets) return this.handleSpreadsheet();
@@ -397,9 +439,18 @@ export class Assistant implements MessageHandler {
     const header = lastError
       ? `🗓️ ${title} fechado!\n${sheets.failureMessage(lastError)}`
       : `🗓️ ${title} fechado! A planilha e os gráficos estão 100% atualizados.`;
-    return {
-      text: `${header}\n\n${body}\n\n📊 Painel: ${sheets.url('dashboard')}\n📄 Planilha: ${sheets.url()}`,
-    };
+    const text = `${header}\n\n${body}\n\n📊 Painel: ${sheets.url('dashboard')}\n📄 Planilha: ${sheets.url()}`;
+    if (lastError) return { text };
+    // O relatório do mês vai junto; se falhar, o aviso sai do mesmo jeito.
+    try {
+      return {
+        text: `${text}\n\nO relatório completo em PDF vai anexo.`,
+        document: await sheets.reportPdf(month),
+      };
+    } catch (error) {
+      this.deps.logger.error({ err: error, month }, 'aviso do dia 1: falha ao gerar o PDF');
+      return { text: `${text}\n\n(Não consegui gerar o PDF agora: peça de novo com /relatorio.)` };
+    }
   }
 
   /** Mensagens avisando dos gastos fixos que a tarefa automática acabou de lançar. */
@@ -433,6 +484,12 @@ export class Assistant implements MessageHandler {
     const others = (await this.payments.countPending()) - (justCreatedId === null ? 0 : 1);
     return { ...message, text: message.text + formatPendingFooter(others) };
   }
+}
+
+/** Motivo amigável de uma falha ao gerar o PDF. */
+function reportFailure(error: unknown, sheets: SpreadsheetLink): string {
+  if (error instanceof SheetsError) return sheets.failureMessage(error).replace(/^⚠️\s*/, '');
+  return 'Tente de novo em instantes; o erro foi registrado no log.';
 }
 
 function capitalizeFirst(text: string): string {

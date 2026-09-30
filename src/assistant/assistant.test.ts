@@ -27,7 +27,8 @@ import { ReminderService } from '../modules/reminders/reminder.service.js';
 import { RecurringService } from '../modules/recurring/recurring.service.js';
 import { ReportService } from '../modules/reports/report.service.js';
 import { CHAT_STATE_TTL_MS } from './conversation-state.js';
-import { Assistant } from './assistant.js';
+import { SheetsError } from '../modules/sheets/spreadsheet-gateway.js';
+import { Assistant, type SpreadsheetLink } from './assistant.js';
 
 const RECEIVED_AT = new Date('2026-09-24T15:00:00Z');
 
@@ -57,7 +58,7 @@ function result(overrides: Partial<ParseResult>): ParseResult {
   };
 }
 
-function setup() {
+function setup(options: { sheets?: SpreadsheetLink } = {}) {
   let now = RECEIVED_AT;
   const clock = () => now;
   const parse = vi.fn<TransactionParser['parse']>();
@@ -102,6 +103,7 @@ function setup() {
     jobState,
     logger,
     now: clock,
+    ...(options.sheets ? { sheets: options.sheets } : {}),
   });
 
   /** Id do botão com esse texto (falha o teste se ele não existir). */
@@ -976,6 +978,64 @@ describe('Assistant', () => {
       const skipped = await assistant.handleAction(button(notice, 'Pular este mês'));
       expect(skipped.text).toContain('Pulei Internet em set/2026');
       expect(transactions.rows).toHaveLength(0);
+    });
+  });
+
+  describe('/relatorio e PDF do dia 1', () => {
+    function fakeSheets(overrides: Partial<SpreadsheetLink> = {}): SpreadsheetLink {
+      return {
+        url: (tab?: string) => `https://planilha${tab ? `#${tab}` : ''}`,
+        status: () => ({ lastSyncAt: new Date(), lastError: null }),
+        syncNow: vi.fn(() => Promise.resolve()),
+        requestSync: vi.fn(),
+        failureMessage: () => '⚠️ Planilha não compartilhada.',
+        handleAction: vi.fn(() => Promise.resolve(null)),
+        reportPdf: vi.fn((month: string) =>
+          Promise.resolve({ filename: `relatorio-${month}.pdf`, data: Buffer.from('%PDF-1.7') }),
+        ),
+        ...overrides,
+      };
+    }
+
+    it('/relatorio manda o PDF do mês atual, com botões dos 2 meses anteriores', async () => {
+      const sheets = fakeSheets();
+      const { assistant } = setup({ sheets });
+
+      const reply = await assistant.handleReport();
+
+      expect(sheets.reportPdf).toHaveBeenCalledWith('2026-09');
+      expect(reply.document?.filename).toBe('relatorio-2026-09.pdf');
+      expect(reply.text).toContain('Relatório de Setembro de 2026');
+      expect(reply.actions?.flat().map((a) => a.id)).toEqual(['rp:2026-08', 'rp:2026-07']);
+
+      const august = await assistant.handleAction('rp:2026-08');
+      expect(august.document?.filename).toBe('relatorio-2026-08.pdf');
+    });
+
+    it('sem planilha, ou se o Google falhar: explica, sem arquivo', async () => {
+      const { assistant } = setup();
+      expect((await assistant.handleReport()).text).toContain('ainda não está configurada');
+
+      const failing = fakeSheets({
+        reportPdf: () => Promise.reject(new SheetsError('permission', 'sem acesso')),
+      });
+      const reply = await setup({ sheets: failing }).assistant.handleReport();
+      expect(reply.document).toBeUndefined();
+      expect(reply.text).toContain(
+        'Não consegui gerar o PDF de Setembro de 2026. Planilha não compartilhada.',
+      );
+    });
+
+    it('aviso do dia 1 leva o PDF do mês fechado; se o PDF falhar, o aviso sai mesmo assim', async () => {
+      const { assistant } = setup({ sheets: fakeSheets() });
+      const closed = await assistant.monthClosedMessage('2026-08');
+      expect(closed.document?.filename).toBe('relatorio-2026-08.pdf');
+      expect(closed.text).toContain('Agosto de 2026 fechado');
+
+      const failing = fakeSheets({ reportPdf: () => Promise.reject(new Error('instável')) });
+      const without = await setup({ sheets: failing }).assistant.monthClosedMessage('2026-08');
+      expect(without.document).toBeUndefined();
+      expect(without.text).toContain('peça de novo com /relatorio');
     });
   });
 

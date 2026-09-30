@@ -6,7 +6,12 @@ import {
   PAYMENT_METHOD_LABELS,
   TYPE_LABELS,
 } from '../transactions/transaction.labels.js';
-import { DATA_COLUMN_COUNT, dashboardFormatRequests, PANEL } from './sheet-dashboard.js';
+import {
+  DATA_COLUMN_COUNT,
+  dashboardFormatRequests,
+  PANEL,
+  REPORT_VARIANT,
+} from './sheet-dashboard.js';
 import {
   INVOICE_ROWS,
   LEGACY_TAB_TITLES,
@@ -46,9 +51,9 @@ export function createTabsRequests(keys: readonly TabKey[], timeZone: string): S
         properties: {
           title: TABS[key],
           index: TAB_ORDER.indexOf(key),
-          hidden: key === 'data',
+          hidden: key === 'data' || key === 'report',
           gridProperties: {
-            frozenRowCount: key === 'dashboard' || key === 'data' ? 0 : 1,
+            frozenRowCount: key === 'dashboard' || key === 'data' || key === 'report' ? 0 : 1,
             ...(key === 'data' ? { columnCount: DATA_COLUMN_COUNT } : {}),
           },
         },
@@ -177,6 +182,7 @@ const TAB_COLORS: Record<TabKey, string> = {
   cards: THEME.border,
   investments: THEME.border,
   data: THEME.border,
+  report: THEME.border,
 };
 
 /**
@@ -215,7 +221,7 @@ export function restyleRequests(
         properties: {
           sheetId: ids[key],
           tabColorStyle: color(TAB_COLORS[key]),
-          hidden: key === 'data',
+          hidden: key === 'data' || key === 'report',
           gridProperties: { hideGridlines: true },
         },
         fields: 'tabColorStyle,hidden,gridProperties.hideGridlines',
@@ -253,6 +259,7 @@ export function restyleRequests(
     conditionalText(grid(categories, [1, 12], [5, 6]), numberGreater(1), THEME.red, true),
 
     ...dashboardFormatRequests(ids.dashboard),
+    ...dashboardFormatRequests(ids.report, REPORT_VARIANT),
   ];
 }
 
@@ -367,7 +374,7 @@ export function columnWidthRequests(ids: TabIds, data: readonly RangeValues[]): 
   for (const { range, values } of data) {
     const match = /^'(.+)'!([A-Z]+)/.exec(range);
     const key = match?.[1] ? keyByTitle.get(match[1]) : undefined;
-    if (!match?.[2] || !key || key === 'dashboard' || key === 'data') continue;
+    if (!match?.[2] || !key || key === 'dashboard' || key === 'data' || key === 'report') continue;
     if (values.length === 1 && values[0]?.length === 1) continue;
     const start = columnIndex(match[2]);
 

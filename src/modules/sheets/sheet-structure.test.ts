@@ -9,6 +9,7 @@ const ids: TabIds = {
   investments: 5,
   dashboard: 6,
   data: 7,
+  report: 8,
 };
 
 function widths(requests: ReturnType<typeof columnWidthRequests>) {

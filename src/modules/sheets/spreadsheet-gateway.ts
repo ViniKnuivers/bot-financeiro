@@ -36,6 +36,11 @@ export interface SpreadsheetGateway {
    * precisam estar na sintaxe do idioma da planilha (ver `toLocaleFormula`).
    */
   writeFormulas(clearRanges: string[], data: RangeValues[]): Promise<void>;
+  /**
+   * Exporta uma faixa (ex.: "A1:L80") de uma aba em PDF (A4 retrato, ajustado à largura, sem
+   * grade). Aba oculta sai vazia.
+   */
+  exportPdf(sheetId: number, range: string): Promise<Buffer>;
 }
 
 export type SheetsErrorReason = 'permission' | 'not_found' | 'quota' | 'unavailable' | 'unexpected';
@@ -88,16 +93,52 @@ function isNetworkError(error: unknown): boolean {
 /** Implementação real, autenticada com a conta de serviço (arquivo JSON do Google Cloud). */
 export class GoogleSheetsGateway implements SpreadsheetGateway {
   private readonly api: sheets_v4.Sheets;
+  private readonly credentials: InstanceType<typeof auth.GoogleAuth>;
 
   constructor(
     readonly spreadsheetId: string,
     keyFile: string,
   ) {
-    const credentials = new auth.GoogleAuth({
+    this.credentials = new auth.GoogleAuth({
       keyFile,
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
-    this.api = sheets({ version: 'v4', auth: credentials });
+    this.api = sheets({ version: 'v4', auth: this.credentials });
+  }
+
+  async exportPdf(sheetId: number, range: string): Promise<Buffer> {
+    const params = new URLSearchParams({
+      format: 'pdf',
+      gid: String(sheetId),
+      range,
+      size: 'A4',
+      portrait: 'true',
+      fitw: 'true',
+      gridlines: 'false',
+      printtitle: 'false',
+      sheetnames: 'false',
+      pagenum: 'CENTER',
+      top_margin: '0.4',
+      bottom_margin: '0.4',
+      left_margin: '0.3',
+      right_margin: '0.3',
+    });
+    try {
+      const { token } = await (await this.credentials.getClient()).getAccessToken();
+      const response = await fetch(
+        `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}/export?${params.toString()}`,
+        { headers: { Authorization: `Bearer ${token ?? ''}` } },
+      );
+      const data = Buffer.from(await response.arrayBuffer());
+      if (!response.ok || !data.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+        throw Object.assign(new Error(`exportação em PDF: HTTP ${response.status}`), {
+          status: response.ok ? 500 : response.status,
+        });
+      }
+      return data;
+    } catch (error) {
+      throw toSheetsError(error);
+    }
   }
 
   async listTabs(): Promise<SheetTab[]> {

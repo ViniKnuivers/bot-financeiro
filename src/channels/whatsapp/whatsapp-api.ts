@@ -20,7 +20,8 @@ export interface WhatsAppListRow {
 export type WhatsAppOutgoing =
   | { kind: 'text'; text: string }
   | { kind: 'buttons'; body: string; buttons: WhatsAppButton[] }
-  | { kind: 'list'; body: string; button: string; rows: WhatsAppListRow[] };
+  | { kind: 'list'; body: string; button: string; rows: WhatsAppListRow[] }
+  | { kind: 'document'; filename: string; data: Buffer; caption?: string };
 
 export interface WhatsAppTemplate {
   name: string;
@@ -76,7 +77,46 @@ export class GraphWhatsAppApi implements WhatsAppApi {
   }
 
   async send(to: string, message: WhatsAppOutgoing): Promise<void> {
+    if (message.kind === 'document') {
+      // Documento: primeiro sobe o arquivo (Media API), depois manda pelo id.
+      const id = await this.uploadMedia(message.data, message.filename);
+      await this.post({
+        recipient_type: 'individual',
+        to,
+        type: 'document',
+        document: {
+          id,
+          filename: message.filename,
+          ...(message.caption ? { caption: message.caption } : {}),
+        },
+      });
+      return;
+    }
     await this.post({ recipient_type: 'individual', to, ...toPayload(message) });
+  }
+
+  private async uploadMedia(data: Buffer, filename: string): Promise<string> {
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    form.append('type', 'application/pdf');
+    form.append('file', new Blob([new Uint8Array(data)], { type: 'application/pdf' }), filename);
+    const response = await this.fetch(`${this.base}/${this.options.phoneNumberId}/media`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: form,
+    });
+    const payload = (await response.json().catch(() => null)) as {
+      id?: string;
+      error?: { message?: string; code?: number };
+    } | null;
+    if (!response.ok || !payload?.id) {
+      throw new WhatsAppApiError(
+        payload?.error?.message ?? `upload de mídia: HTTP ${response.status}`,
+        response.status,
+        payload?.error?.code ?? null,
+      );
+    }
+    return payload.id;
   }
 
   async sendTemplate(to: string, template: WhatsAppTemplate): Promise<void> {
@@ -163,7 +203,9 @@ export class GraphWhatsAppApi implements WhatsAppApi {
   }
 }
 
-function toPayload(message: WhatsAppOutgoing): Record<string, unknown> {
+function toPayload(
+  message: Exclude<WhatsAppOutgoing, { kind: 'document' }>,
+): Record<string, unknown> {
   switch (message.kind) {
     case 'text':
       return { type: 'text', text: { body: message.text, preview_url: true } };

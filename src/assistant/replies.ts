@@ -67,6 +67,7 @@ export const WELCOME = [
   '/fixos: gastos fixos que eu lanço sozinho (ou lembro) todo mês',
   '/lembretes: contas e faturas que vencem nos próximos dias',
   '/planilha e /grafico: sua planilha Google com tudo (se configurada)',
+  '/relatorio: o relatório do mês em PDF',
   '/cartoes: seus cartões, contas e saldos',
   '/pendentes: lançamentos esperando sua resposta',
   '/ultimos: seus 10 últimos lançamentos',

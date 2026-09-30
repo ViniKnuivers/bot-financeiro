@@ -68,6 +68,26 @@ describe('toWhatsAppMessages', () => {
     expect(messages[1]).toMatchObject({ body: 'Escolha uma opção:' });
   });
 
+  it('documento: texto curto vira legenda; botões vêm depois do arquivo', () => {
+    const document = { filename: 'r.pdf', data: Buffer.from('%PDF') };
+    const messages = toWhatsAppMessages({ text: 'Relatório', document, actions: [actions(2)] });
+
+    expect(messages.map((m) => m.kind)).toEqual(['document', 'buttons']);
+    expect(messages[0]).toMatchObject({
+      kind: 'document',
+      filename: 'r.pdf',
+      caption: 'Relatório',
+    });
+  });
+
+  it('documento com texto maior que a legenda: o texto vai antes, sem legenda', () => {
+    const document = { filename: 'r.pdf', data: Buffer.from('%PDF') };
+    const messages = toWhatsAppMessages({ text: 'x'.repeat(1500), document });
+
+    expect(messages.map((m) => m.kind)).toEqual(['text', 'document']);
+    expect(messages[1]).not.toHaveProperty('caption');
+  });
+
   it('texto enorme é dividido em fim de linha', () => {
     const text = 'x'.repeat(100).concat('\n').repeat(60); // 6060 caracteres
     const messages = toWhatsAppMessages({ text });

@@ -38,6 +38,12 @@ function handler() {
     handleBudgets: reply('orçamento'),
     handleRecurring: reply('fixos'),
     handleReminders: reply('lembretes'),
+    handleReport: vi.fn(() =>
+      Promise.resolve({
+        text: '📄 Relatório de Setembro de 2026',
+        document: { filename: 'relatorio-setembro-2026.pdf', data: Buffer.from('%PDF-1.7') },
+      }),
+    ),
     handleSpreadsheet: reply('planilha'),
     handleCharts: reply('painel'),
   } satisfies MessageHandler;
@@ -143,6 +149,24 @@ describe('WhatsAppChannel: conversa', () => {
       'p1',
       'p2',
       'Comando desconhecido. Mande /start para ver o que eu sei fazer.',
+    ]);
+  });
+
+  it('/relatorio manda o PDF como documento, com o texto de legenda', async () => {
+    const { api, receive, incoming } = setup();
+
+    await receive(incoming({ kind: 'text', text: '/relatorio' }));
+
+    expect(api.sent).toEqual([
+      {
+        to: ME,
+        message: {
+          kind: 'document',
+          filename: 'relatorio-setembro-2026.pdf',
+          data: Buffer.from('%PDF-1.7'),
+          caption: '📄 Relatório de Setembro de 2026',
+        },
+      },
     ]);
   });
 

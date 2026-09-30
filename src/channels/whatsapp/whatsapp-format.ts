@@ -10,6 +10,7 @@ const ROW_TITLE = 24;
 const ROW_DESCRIPTION = 72;
 const LIST_BODY = 4096;
 const TEXT_BODY = 4096;
+const CAPTION = 1024;
 
 const LIST_BUTTON = 'Escolher';
 
@@ -21,6 +22,23 @@ const LIST_BUTTON = 'Escolher';
  * O WhatsApp não edita mensagens já enviadas: respostas a toques sempre chegam como novas.
  */
 export function toWhatsAppMessages(message: OutgoingMessage): WhatsAppOutgoing[] {
+  if (message.document) {
+    // Arquivo com o texto de legenda (ou antes, se passar do limite), e os botões depois.
+    const { document, actions } = message;
+    const fitsCaption = length(message.text) <= CAPTION;
+    return [
+      ...(fitsCaption ? [] : textMessages(message.text)),
+      {
+        kind: 'document',
+        filename: document.filename,
+        data: document.data,
+        ...(fitsCaption ? { caption: message.text } : {}),
+      },
+      ...(actions && actions.flat().length > 0
+        ? toWhatsAppMessages({ text: 'Mais opções:', actions })
+        : []),
+    ];
+  }
   const actions = (message.actions ?? []).flat();
   if (actions.length === 0) return textMessages(message.text);
 

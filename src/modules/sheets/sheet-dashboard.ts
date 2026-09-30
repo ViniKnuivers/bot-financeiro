@@ -67,8 +67,8 @@ export const DATA = {
   clear: 'A1:AZ400',
 } as const;
 
-/** A aba Dados vai até a coluna BF; abas novas nascem só com A..Z (26 colunas). */
-export const DATA_COLUMN_COUNT = 60;
+/** A aba Dados vai até a coluna BN; abas novas nascem só com A..Z (26 colunas). */
+export const DATA_COLUMN_COUNT = 70;
 
 /** Faixas usadas nas fórmulas (absolutas, na aba Dados). */
 const LAST_MONTH_ROW = 1 + SUMMARY_MONTHS;
@@ -79,8 +79,35 @@ const TOP_TABLE = `Dados!$AB$2:$AF$${1 + SUMMARY_MONTHS * MAX_TOP}`;
 /** Só a coluna de chaves ("set/2026#1"), para saber se o mês tem alguma linha. */
 const BUDGET_KEYS = `Dados!$V$2:$V$${1 + SUMMARY_MONTHS * MAX_CATEGORY_ROWS}`;
 const TOP_KEYS = `Dados!$AB$2:$AB$${1 + SUMMARY_MONTHS * MAX_TOP}`;
-const SELECTED_MONTH = 'Dados!$BC$1';
-const SELECTED_ROW = 'Dados!$BC$2';
+/**
+ * O Painel e o Relatório (aba oculta, exportada em PDF) usam o mesmo layout e as mesmas
+ * fórmulas; mudam a aba, de onde vem o mês e as colunas de apoio na aba Dados.
+ */
+export interface DashboardVariant {
+  tab: 'dashboard' | 'report';
+  /** Colunas na aba Dados: rótulo e valor do mês escolhido, e rótulo e valor da rosca. */
+  helper: { label: string; value: string; donutLabel: string; donutValue: string };
+}
+
+export const PANEL_VARIANT: DashboardVariant = {
+  tab: 'dashboard',
+  helper: { label: 'BB', value: 'BC', donutLabel: 'BE', donutValue: 'BF' },
+};
+
+export const REPORT_VARIANT: DashboardVariant = {
+  tab: 'report',
+  helper: { label: 'BH', value: 'BI', donutLabel: 'BK', donutValue: 'BL' },
+};
+
+/** Início e fim (números de série) do mês do relatório, escritos pelo bot ao gerar o PDF. */
+export const REPORT_PERIOD = 'BN1:BN2';
+
+/** Mês escolhido ("set/2026") e a linha dele na tabela de meses. */
+const selectedMonth = (v: DashboardVariant) => `Dados!$${v.helper.value}$1`;
+const selectedRow = (v: DashboardVariant) => `Dados!$${v.helper.value}$2`;
+/** Célula do mês na própria aba (seletor no Painel; preenchida pelo bot no Relatório). */
+const monthCellRef = (v: DashboardVariant) =>
+  v.tab === 'dashboard' ? 'Painel!$H$2' : "'Relatório'!$H$2";
 
 /** Tabela mês a mês (24 meses), a mesma do Resumo. */
 export function monthTable(input: SheetData): Cell[][] {
@@ -266,31 +293,36 @@ export function dataTabContent(input: SheetData): RangeValues[] {
 
 /**
  * Fórmulas de apoio na aba Dados (de BB em diante, fora do que o bot reescreve):
- * o mês escolhido no Painel e as categorias desse mês, que alimentam a rosca.
+ * o mês escolhido e as categorias desse mês, que alimentam a rosca.
  */
-function dataFormulas(): RangeValues[] {
+function dataFormulas(v: DashboardVariant): RangeValues[] {
+  const { label, value, donutLabel, donutValue } = v.helper;
   const lastLabel = `$A$${LAST_MONTH_ROW}`;
   const labelsRange = `$A$2:$A$${LAST_MONTH_ROW}`;
+  const month = monthCellRef(v);
   const donut: Cell[][] = Array.from({ length: MAX_CATEGORY_ROWS }, (_, i) => {
-    const key = `$BC$1&"#${i + 1}"`;
+    const key = `$${value}$1&"#${i + 1}"`;
     const table = CATEGORIES_TABLE.replace('Dados!', '');
     // Mês sem gastos: um anel único "Sem gastos", em vez do aviso de gráfico vazio.
-    const [label, value] = i === 0 ? ['"Sem gastos neste mês"', '1'] : ['""', '""'];
+    const [fallbackLabel, fallbackValue] = i === 0 ? ['"Sem gastos neste mês"', '1'] : ['""', '""'];
     return [
-      `=IFERROR(VLOOKUP(${key},${table},2,FALSE),${label})`,
-      `=IFERROR(VLOOKUP(${key},${table},3,FALSE),${value})`,
+      `=IFERROR(VLOOKUP(${key},${table},2,FALSE),${fallbackLabel})`,
+      `=IFERROR(VLOOKUP(${key},${table},3,FALSE),${fallbackValue})`,
     ];
   });
   return [
     {
-      range: a1('data', 'BB1:BC2'),
+      range: a1('data', `${label}1:${value}2`),
       values: [
-        ['Mês escolhido', `=IF(COUNTIF(${labelsRange},Painel!$H$2)=0,${lastLabel},Painel!$H$2)`],
-        ['Linha do mês', `=MATCH($BC$1,${labelsRange},0)`],
+        [
+          v.tab === 'dashboard' ? 'Mês escolhido' : 'Mês do relatório',
+          `=IF(COUNTIF(${labelsRange},${month})=0,${lastLabel},${month})`,
+        ],
+        ['Linha do mês', `=MATCH($${value}$1,${labelsRange},0)`],
       ],
     },
     {
-      range: a1('data', `BE1:BF${1 + MAX_CATEGORY_ROWS}`),
+      range: a1('data', `${donutLabel}1:${donutValue}${1 + MAX_CATEGORY_ROWS}`),
       values: [['Categoria', 'Gasto'], ...donut],
     },
   ];
@@ -330,6 +362,24 @@ export const PANEL = {
   listsFirst: 64,
   footer: 73,
 } as const;
+
+/** Relatório: depois do Painel, a lista de todos os lançamentos do mês. */
+export const REPORT_TABLE = {
+  title: 75,
+  header: 76,
+  first: 77,
+  /** Até onde formatar (a lista cresce com a fórmula FILTER). */
+  last: 700,
+  headers: ['Data', 'Valor', 'Tipo', 'Categoria', 'Forma', 'Cartão/Conta', 'Descrição'],
+} as const;
+
+/**
+ * O que vai para o PDF: A..L (as colunas úteis B..K e as margens) até a última linha da
+ * lista, mais uma de margem. Sem isso, o PDF leva as linhas e colunas vazias da aba.
+ */
+export function reportPrintRange(entryCount: number): string {
+  return `A1:L${REPORT_TABLE.first + Math.max(1, entryCount)}`;
+}
 
 /** Altura das linhas (px), da linha 1 em diante; o resto fica com 21 px (padrão). */
 function rowHeights(): [number, number, number][] {
@@ -379,10 +429,10 @@ const KPIS: readonly Kpi[] = [
 const kpiColumn = (k: number): string => String.fromCharCode(66 + 2 * k);
 
 /** "▲ 12% vs ago/2026" (ou "= igual a ago/2026") comparando o mês escolhido com o anterior. */
-function deltaFormula(column: string): string {
+function deltaFormula(column: string, v: DashboardVariant): string {
   const range = MONTHS_COLUMN(column);
   return (
-    `=LET(i,${SELECTED_ROW},v,INDEX(${range},i),p,IF(i<2,0,INDEX(${range},i-1)),` +
+    `=LET(i,${selectedRow(v)},v,INDEX(${range},i),p,IF(i<2,0,INDEX(${range},i-1)),` +
     `IF(p=0,"—",IF(v=p,"= igual a ",IF(v>p,"▲ ","▼ ")&TEXT(ABS(v-p)/ABS(p),"0%")&" vs ")&INDEX(${MONTHS_COLUMN('A')},i-1)))`
   );
 }
@@ -399,24 +449,35 @@ function barFormula(ratioCell: string, emptyWhen: string): string {
 export function dashboardCells(options: {
   cardsWithInvoices: number;
   includeSelector: boolean;
+  variant?: DashboardVariant;
 }): RangeValues[] {
+  const v = options.variant ?? PANEL_VARIANT;
+  const report = v.tab === 'report';
+  const SELECTED_MONTH = selectedMonth(v);
+  const SELECTED_ROW = selectedRow(v);
   const p = PANEL;
   const cells = new Map<string, Cell>();
   const put = (ref: string, value: Cell) => cells.set(ref, value);
 
-  put(`B${p.title}`, '💰 Painel financeiro');
+  put(`B${p.title}`, report ? `="📄 Relatório · "&${SELECTED_MONTH}` : '💰 Painel financeiro');
   put(`G${p.title}`, '📅 Mês');
-  if (options.includeSelector) put(p.selector, 'Mês atual');
+  if (options.includeSelector && !report) put(p.selector, 'Mês atual');
   put(`J${p.title}`, '=IF(Dados!$AX$1="","","Atualizado em "&Dados!$AX$1)');
-  // A previsão é sempre do mês atual (o seletor não muda o futuro).
-  put(`B${p.forecast}`, '=IF(Dados!$AX$3="","",Dados!$AX$3)');
+  // A previsão é sempre do mês atual (o seletor não muda o futuro); no relatório de um mês
+  // que já fechou, a faixa fica vazia.
+  put(
+    `B${p.forecast}`,
+    report
+      ? `=IF(${SELECTED_MONTH}<>Dados!$A$${LAST_MONTH_ROW},"",IF(Dados!$AX$3="","",Dados!$AX$3))`
+      : '=IF(Dados!$AX$3="","",Dados!$AX$3)',
+  );
 
   KPIS.forEach((kpi, k) => {
     const col = kpiColumn(k);
     put(`${col}${p.kpiLabel}`, kpi.label);
     if (kpi.column) {
       put(`${col}${p.kpiValue}`, `=INDEX(${MONTHS_COLUMN(kpi.column)},${SELECTED_ROW})`);
-      put(`${col}${p.kpiDelta}`, deltaFormula(kpi.column));
+      put(`${col}${p.kpiDelta}`, deltaFormula(kpi.column, v));
     } else {
       put(`${col}${p.kpiValue}`, '=Dados!$AX$2');
       put(`${col}${p.kpiDelta}`, 'hoje, somando as contas');
@@ -519,28 +580,47 @@ export function dashboardCells(options: {
 
   put(
     `B${p.footer}`,
-    'Atualiza sozinho a cada lançamento. Para corrigir, adicionar ou apagar, use a aba Lançamentos.',
+    report
+      ? '="Gerado pelo bot financeiro em "&Dados!$AX$1&". Cartões, contas e últimos lançamentos mostram a situação desse dia."'
+      : 'Atualiza sozinho a cada lançamento. Para corrigir, adicionar ou apagar, use a aba Lançamentos.',
   );
+
+  if (report) {
+    // Todos os lançamentos do mês, em ordem de data. O período vem de Dados!BN1:BN2,
+    // escrito pelo bot na hora de gerar o PDF.
+    const t = REPORT_TABLE;
+    const column = (letter: string) => `'Lançamentos'!$${letter}$2:$${letter}`;
+    put(`B${t.title}`, `="📋 Lançamentos de "&${SELECTED_MONTH}`);
+    t.headers.forEach((h, i) => {
+      put(`${String.fromCharCode(66 + i)}${t.header}`, h);
+    });
+    put(
+      `B${t.first}`,
+      `=IFERROR(SORT(FILTER({${['B', 'F', 'C', 'E', 'H', 'I', 'D'].map(column).join(',')}},` +
+        `${column('B')}>=Dados!$BN$1,${column('B')}<Dados!$BN$2),1,TRUE),"Nenhum lançamento neste mês")`,
+    );
+  }
 
   const localize = (value: Cell): Cell =>
     typeof value === 'string' && value.startsWith('=') ? toLocaleFormula(value) : value;
   return [
     ...[...cells].map(([ref, value]) => ({
-      range: a1('dashboard', ref),
+      range: a1(v.tab, ref),
       values: [[localize(value)]],
     })),
-    ...dataFormulas().map((r) => ({ ...r, values: r.values.map((row) => row.map(localize)) })),
+    ...dataFormulas(v).map((r) => ({ ...r, values: r.values.map((row) => row.map(localize)) })),
   ];
 }
 
-/** O que limpar no Painel antes de reescrever as fórmulas (tudo, menos o mês escolhido). */
-export function dashboardClearRanges(): string[] {
+/** O que limpar antes de reescrever as fórmulas (no Painel, tudo menos o mês escolhido). */
+export function dashboardClearRanges(v: DashboardVariant = PANEL_VARIANT): string[] {
+  const { label, donutValue } = v.helper;
   return [
-    a1('dashboard', 'A1:Z1'),
-    a1('dashboard', 'A2:G2'),
-    a1('dashboard', 'J2:Z2'),
-    a1('dashboard', 'A3:Z200'),
-    a1('data', 'BB1:BZ100'),
+    a1(v.tab, 'A1:Z1'),
+    a1(v.tab, 'A2:G2'),
+    a1(v.tab, 'J2:Z2'),
+    a1(v.tab, `A3:Z${REPORT_TABLE.last}`),
+    a1('data', `${label}1:${v.tab === 'report' ? 'BN' : donutValue}100`),
   ];
 }
 
@@ -572,7 +652,10 @@ function merge(range: sheets_v4.Schema$GridRange): SheetRequest {
 }
 
 /** Formatos, tamanhos e regras do Painel (a aba inteira é reformatada do zero). */
-export function dashboardFormatRequests(sheetId: number): SheetRequest[] {
+export function dashboardFormatRequests(
+  sheetId: number,
+  variant: DashboardVariant = PANEL_VARIANT,
+): SheetRequest[] {
   const p = PANEL;
   const g = (rows: readonly [number, number], columns: readonly [number, number]) =>
     gridRange(sheetId, rows, columns);
@@ -632,19 +715,24 @@ export function dashboardFormatRequests(sheetId: number): SheetRequest[] {
       horizontalAlignment: 'CENTER',
     }),
     borders(g([p.title, p.title], [7, 9]), THEME.gold),
-    {
-      setDataValidation: {
-        range: g([p.title, p.title], [7, 8]),
-        rule: {
-          condition: {
-            type: 'ONE_OF_RANGE',
-            values: [{ userEnteredValue: `=Dados!$AZ$1:$AZ$${1 + SUMMARY_MONTHS}` }],
-          },
-          showCustomUi: true,
-          strict: true,
-        },
-      },
-    },
+    // Só o Painel tem a lista de meses; no Relatório o mês é preenchido pelo bot.
+    ...(variant.tab === 'dashboard'
+      ? [
+          {
+            setDataValidation: {
+              range: g([p.title, p.title], [7, 8]),
+              rule: {
+                condition: {
+                  type: 'ONE_OF_RANGE',
+                  values: [{ userEnteredValue: `=Dados!$AZ$1:$AZ$${1 + SUMMARY_MONTHS}` }],
+                },
+                showCustomUi: true,
+                strict: true,
+              },
+            },
+          } satisfies SheetRequest,
+        ]
+      : []),
     merge(g([p.title, p.title], [9, 11])),
     cellFormat(g([p.title, p.title], [9, 11]), {
       textFormat: textFormat(THEME.muted, { size: 9 }),
@@ -785,7 +873,31 @@ export function dashboardFormatRequests(sheetId: number): SheetRequest[] {
       horizontalAlignment: 'CENTER',
     }),
   );
+  if (variant.tab === 'report') requests.push(...reportTableFormat(g));
   return requests;
+}
+
+/** A lista de lançamentos do Relatório: título, cabeçalho e formatos de data e valor. */
+function reportTableFormat(
+  g: (
+    rows: readonly [number, number],
+    columns: readonly [number, number],
+  ) => sheets_v4.Schema$GridRange,
+): SheetRequest[] {
+  const t = REPORT_TABLE;
+  const columns = [1, 1 + t.headers.length] as const;
+  return [
+    merge(g([t.title, t.title], [1, 11])),
+    cellFormat(g([t.title, t.title], [1, 11]), {
+      textFormat: textFormat(THEME.gold, { bold: true, size: 12 }),
+    }),
+    cellFormat(g([t.header, t.header], columns), {
+      textFormat: textFormat(THEME.muted, { bold: true, size: 9 }),
+    }),
+    bottomBorder(g([t.header, t.header], columns), THEME.border),
+    cellFormat(g([t.first, t.last], [1, 2]), { numberFormat: DATE }),
+    cellFormat(g([t.first, t.last], [2, 3]), { numberFormat: CURRENCY }),
+  ];
 }
 
 function textStartsWith(prefix: string): sheets_v4.Schema$BooleanCondition {
@@ -849,8 +961,16 @@ function axes(): sheets_v4.Schema$BasicChartAxis[] {
 
 interface ChartIds {
   dashboard: number;
+  report: number;
   data: number;
   cards: number;
+}
+
+/** "BE" → 56 (índice zero-based da coluna). */
+function letterIndex(letters: string): number {
+  let n = 0;
+  for (let i = 0; i < letters.length; i++) n = n * 26 + letters.charCodeAt(i) - 64;
+  return n - 1;
 }
 
 /** Os gráficos do Painel (apaga os que já existem nele e cria de novo). */
@@ -858,6 +978,7 @@ export function dashboardChartRequests(
   ids: ChartIds,
   existingChartIds: readonly number[],
   cardsWithInvoices: number,
+  variant: DashboardVariant = PANEL_VARIANT,
 ): SheetRequest[] {
   const { data } = ids;
   const chartRows = [0, 1 + CHART_MONTHS] as const;
@@ -877,8 +998,8 @@ export function dashboardChartRequests(
         pieChart: {
           legendPosition: 'RIGHT_LEGEND',
           pieHole: 0.55,
-          domain: source(data, [1, 1 + MAX_CATEGORY_ROWS], 56),
-          series: source(data, [1, 1 + MAX_CATEGORY_ROWS], 57),
+          domain: source(data, [1, 1 + MAX_CATEGORY_ROWS], letterIndex(variant.helper.donutLabel)),
+          series: source(data, [1, 1 + MAX_CATEGORY_ROWS], letterIndex(variant.helper.donutValue)),
         },
       }),
       PANEL.chartsTop,
@@ -943,7 +1064,7 @@ export function dashboardChartRequests(
           spec,
           position: {
             overlayPosition: {
-              anchorCell: { sheetId: ids.dashboard, rowIndex: row - 1, columnIndex: column },
+              anchorCell: { sheetId: ids[variant.tab], rowIndex: row - 1, columnIndex: column },
               offsetXPixels: column === RIGHT[0] ? 8 : 0,
               widthPixels: CHART_WIDTH,
               heightPixels: CHART_HEIGHT,

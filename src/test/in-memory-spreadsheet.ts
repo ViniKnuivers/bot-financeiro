@@ -38,6 +38,13 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
         this.tabs.push(newTab(sheetId, title));
         this.columns.set(sheetId, request.addSheet?.properties?.gridProperties?.columnCount ?? 26);
       }
+      const hiddenFlag = request.addSheet?.properties?.hidden;
+      if (title && hiddenFlag) this.hiddenTabs.add(this.nextId - 1);
+      const props = request.updateSheetProperties?.properties;
+      if (typeof props?.sheetId === 'number' && typeof props.hidden === 'boolean') {
+        if (props.hidden) this.hiddenTabs.add(props.sheetId);
+        else this.hiddenTabs.delete(props.sheetId);
+      }
       const resized = request.updateSheetProperties?.properties;
       const columnCount = resized?.gridProperties?.columnCount;
       if (typeof resized?.sheetId === 'number' && typeof columnCount === 'number') {
@@ -77,21 +84,41 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
     return Promise.resolve();
   }
 
+  /** Abas exportadas em PDF, a faixa e se estavam visíveis na hora (aba oculta sai vazia). */
+  readonly exported: { sheetId: number; range: string; hidden: boolean }[] = [];
+  /** O que a fórmula da lista do Relatório "calculou" (coluna B, a partir da 1ª linha). */
+  reportList: unknown[][] = [];
+  private readonly hiddenTabs = new Set<number>();
+
+  exportPdf(sheetId: number, range: string): Promise<Buffer> {
+    if (this.failWith) return Promise.reject(this.failWith);
+    this.exported.push({ sheetId, range, hidden: this.hiddenTabs.has(sheetId) });
+    return Promise.resolve(Buffer.from('%PDF-1.7 falso'));
+  }
+
   writeFormulas(_clearRanges: string[], data: RangeValues[]): Promise<void> {
     if (this.failWith) return Promise.reject(this.failWith);
     for (const { range, values } of data) this.formulas.set(range, structuredClone(values));
     return Promise.resolve();
   }
 
-  replaceValues(_clearRanges: string[], data: RangeValues[]): Promise<void> {
+  replaceValues(clearRanges: string[], data: RangeValues[]): Promise<void> {
     if (this.failWith) return Promise.reject(this.failWith);
+    if (clearRanges.length === 0) {
+      // Escrita pontual (ex.: o mês do Relatório): soma ao que já foi escrito.
+      for (const item of structuredClone(data)) {
+        this.written = [...this.written.filter((r) => r.range !== item.range), item];
+      }
+      return Promise.resolve();
+    }
     this.written = structuredClone(data);
     this.edited = null;
     return Promise.resolve();
   }
 
   /**
-   * Simula a leitura: células do Painel vêm do que foi escrito como digitado; o resto
+   * Simula a leitura: células do Painel vêm do que foi escrito como digitado, a lista do
+   * Relatório vem de `reportList`; o resto
    * devolve as linhas de dados da aba Lançamentos (sem o cabeçalho),
    * que os testes podem editar em `transactionRows` antes da próxima sincronização.
    */
@@ -100,6 +127,7 @@ export class InMemorySpreadsheet implements SpreadsheetGateway {
     if (range.startsWith("'Painel'")) {
       return Promise.resolve(structuredClone(this.formulas.get(range) ?? []));
     }
+    if (range.startsWith("'Relatório'")) return Promise.resolve(structuredClone(this.reportList));
     return Promise.resolve(structuredClone(this.transactionRows));
   }
 

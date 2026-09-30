@@ -53,6 +53,7 @@ function setup() {
     today: () => TODAY,
     timeZone: 'America/Sao_Paulo',
     debounceMs: 10,
+    recalcDelayMs: 0,
   });
   const register = (overrides: Record<string, unknown> = {}) =>
     new TransactionService(transactions).register({
@@ -76,7 +77,7 @@ function setup() {
 }
 
 describe('SheetSyncService', () => {
-  it('na primeira vez cria as 7 abas, o Painel com gráficos e escreve os dados', async () => {
+  it('na primeira vez cria as 8 abas, Painel e Relatório com gráficos, e escreve os dados', async () => {
     const { sync, gateway, register } = setup();
     await register();
     await register({
@@ -98,10 +99,12 @@ describe('SheetSyncService', () => {
         'Investimentos',
         'Painel',
         'Dados',
+        'Relatório',
       ]),
     );
     expect(gateway.tabs.map((t) => t.title)).not.toContain('Gráficos');
-    expect(gateway.chartCount()).toBe(3); // sem cartão com fatura: sem gráfico de faturas
+    // 3 no Painel e 3 no Relatório (sem cartão com fatura: sem gráfico de faturas).
+    expect(gateway.chartCount()).toBe(6);
     const rows = gateway.range("'Lançamentos'!A1:K");
     expect(rows[0]?.[0]).toBe('ID');
     expect(rows).toHaveLength(3);
@@ -121,7 +124,7 @@ describe('SheetSyncService', () => {
     await sync.syncNow();
 
     expect(gateway.count('addChart')).toBe(charts);
-    expect(gateway.count('addSheet')).toBe(7);
+    expect(gateway.count('addSheet')).toBe(8);
     expect(gateway.count('addBanding')).toBe(1);
   });
 
@@ -132,7 +135,7 @@ describe('SheetSyncService', () => {
 
     await sync.syncNow();
 
-    expect(gateway.chartCount()).toBe(4);
+    expect(gateway.chartCount()).toBe(8);
     expect(gateway.range("'Cartões e vales'!A2:B12")[0]).toEqual(['Mês', 'Santander']);
   });
 
@@ -202,7 +205,7 @@ describe('SheetSyncService', () => {
 
     expect(gateway.tabs.map((t) => t.title)).not.toContain('Gráficos');
     expect(gateway.count('deleteSheet')).toBe(1);
-    expect(gateway.chartCount()).toBe(3);
+    expect(gateway.chartCount()).toBe(6);
   });
 
   it('reaplicar o visual não acumula faixas listradas nem regras de cor', async () => {
@@ -236,6 +239,71 @@ describe('SheetSyncService', () => {
     expect(gateway.formulas.get("'Painel'!B5")?.[0]?.[0]).toBe(
       '=INDEX(Dados!$B$2:$B$25;Dados!$BC$2)',
     );
+  });
+});
+
+describe('relatório em PDF', () => {
+  it('mês sem lançamentos: exporta até a linha do "Nenhum lançamento"', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+
+    await sync.reportPdf('2026-09');
+
+    expect(gateway.exported.map((e) => e.range)).toEqual(['A1:L78']);
+  });
+
+  it('escreve o mês só no Relatório, exporta com a aba visível e esconde de novo', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+    gateway.formulas.set("'Painel'!H2", [['ago/2026']]); // sua escolha no Painel
+    gateway.reportList = [['01/08/2026'], ['05/08/2026'], ['09/08/2026']];
+
+    const file = await sync.reportPdf('2026-08');
+
+    const report = gateway.tabs.find((t) => t.title === 'Relatório');
+    expect(file.filename).toBe('relatorio-agosto-2026.pdf');
+    expect(file.data.subarray(0, 5).toString()).toBe('%PDF-');
+    // Só até a última linha da lista (77..79) + uma de margem: sem páginas vazias.
+    expect(gateway.exported).toEqual([
+      { sheetId: report?.sheetId, range: 'A1:L80', hidden: false },
+    ]);
+    expect(gateway.range("'Relatório'!H2")).toEqual([['ago/2026']]);
+    // Agosto: de 01/08 (46235) até antes de 01/09 (46266).
+    expect(gateway.range("'Dados'!BN1:BN2")).toEqual([[46235], [46266]]);
+    expect(gateway.formulas.get("'Painel'!H2")).toEqual([['ago/2026']]);
+    const lastVisibility = gateway.requests
+      .map((r) => r.updateSheetProperties?.properties)
+      .filter((props) => props?.sheetId === report?.sheetId && props?.hidden !== undefined)
+      .at(-1);
+    expect(lastVisibility?.hidden).toBe(true);
+  });
+
+  it('o Relatório tem as mesmas fórmulas do Painel, com o mês e a rosca dele', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+
+    expect(gateway.formulas.get("'Relatório'!B5")?.[0]?.[0]).toBe(
+      '=INDEX(Dados!$B$2:$B$25;Dados!$BI$2)',
+    );
+    expect(gateway.formulas.get("'Dados'!BH1:BI2")?.[0]?.[1]).toContain("'Relatório'!$H$2");
+    const list = String(gateway.formulas.get("'Relatório'!B77")?.[0]?.[0]);
+    expect(list).toMatch(/^=IFERROR\(SORT\(FILTER\(\{'Lançamentos'!\$B\$2:\$B\\/);
+    expect(list).toContain(">=Dados!$BN$1;'Lançamentos'!$B$2:$B<Dados!$BN$2");
+  });
+
+  it('falha do Google vira erro com motivo, e a aba volta a ficar oculta', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+    const spy = vi.spyOn(gateway, 'exportPdf').mockRejectedValueOnce(googleError({ status: 403 }));
+
+    await expect(sync.reportPdf('2026-09')).rejects.toMatchObject({ reason: 'permission' });
+    expect(spy).toHaveBeenCalledOnce();
+    const report = gateway.tabs.find((t) => t.title === 'Relatório');
+    const lastVisibility = gateway.requests
+      .map((r) => r.updateSheetProperties?.properties)
+      .filter((props) => props?.sheetId === report?.sheetId && props?.hidden !== undefined)
+      .at(-1);
+    expect(lastVisibility?.hidden).toBe(true);
   });
 });
 

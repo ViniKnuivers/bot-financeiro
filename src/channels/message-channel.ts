@@ -23,10 +23,18 @@ export interface ReplyAction {
   id: string;
 }
 
+/** Arquivo anexado (ex.: o relatório em PDF). */
+export interface OutgoingDocument {
+  filename: string;
+  data: Buffer;
+}
+
 export interface OutgoingMessage {
   text: string;
   /** Botões em linhas: cada array interno é uma linha. */
   actions?: ReplyAction[][];
+  /** Arquivo enviado junto; o texto vira a legenda. */
+  document?: OutgoingDocument;
 }
 
 /**
@@ -63,6 +71,8 @@ export interface MessageHandler {
   handleSpreadsheet(): Promise<OutgoingMessage>;
   /** Link da aba de gráficos. */
   handleCharts(): Promise<OutgoingMessage>;
+  /** Relatório do mês em PDF (Painel + lançamentos). */
+  handleReport(): Promise<OutgoingMessage>;
 }
 
 /** Envia mensagens por iniciativa do bot (gastos fixos, aviso do dia 1, alertas). */
