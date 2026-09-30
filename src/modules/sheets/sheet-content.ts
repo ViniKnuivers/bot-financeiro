@@ -68,7 +68,8 @@ export interface SheetContent {
 export type Cell = string | number | null;
 
 const SOURCE_LABELS: Record<InputSource, string> = {
-  // Telegram ou WhatsApp: os dois chegam como mensagem de texto, voz ou foto.
+  // Telegram ou WhatsApp: os dois chegam como mensagem de texto ou de voz. PHOTO veio da
+  // leitura de comprovantes, que foi removida; fica para os lançamentos já feitos.
   TEXT: 'Chat (texto)',
   AUDIO: 'Chat (áudio)',
   PHOTO: 'Chat (foto)',

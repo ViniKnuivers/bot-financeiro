@@ -22,7 +22,7 @@ export interface GeminiTransactionParserOptions {
   logger: Logger;
   /** Limite por tentativa (por modelo). Respostas normais levam de 1 a 4 segundos. */
   timeoutMs?: number;
-  /** Limite por tentativa quando a entrada é áudio ou foto, que o modelo leva mais tempo para processar. */
+  /** Limite por tentativa quando a entrada é áudio, que o modelo leva mais tempo para processar. */
   audioTimeoutMs?: number;
   /** Quantas vezes percorrer a lista de modelos de novo se todos falharem. */
   retriesOnUnavailable?: number;
@@ -80,7 +80,7 @@ export class GeminiTransactionParser implements TransactionParser {
         investmentDestinations: input.investmentDestinations ?? [],
       }),
       responseJsonSchema: buildParseResultJsonSchema(accounts.map((a) => a.name)),
-      timeoutMs: input.audio || input.image ? this.audioTimeoutMs : this.timeoutMs,
+      timeoutMs: input.audio ? this.audioTimeoutMs : this.timeoutMs,
     };
     const raw = await this.generateWithRetry(request);
     return validate(raw);
@@ -155,18 +155,11 @@ function buildParts(input: ParseInput): Part[] {
     parts.push({ text: 'Mensagem de voz do usuário:' });
     parts.push({ inlineData: { data: input.audio.toString('base64'), mimeType: input.mimeType } });
   }
-  if (input.image) {
-    if (!input.mimeType) {
-      throw new TransactionParserError('unexpected', 'mimeType é obrigatório para foto');
-    }
-    parts.push({ text: 'Foto enviada pelo usuário:' });
-    parts.push({ inlineData: { data: input.image.toString('base64'), mimeType: input.mimeType } });
-  }
   if (input.text) {
-    parts.push({ text: input.image ? `Legenda da foto: ${input.text}` : input.text });
+    parts.push({ text: input.text });
   }
   if (parts.length === 0) {
-    throw new TransactionParserError('unexpected', 'entrada sem texto, áudio nem foto');
+    throw new TransactionParserError('unexpected', 'entrada sem texto nem áudio');
   }
   return parts;
 }

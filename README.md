@@ -1,9 +1,9 @@
 # bot-financeiro
 
 Seu assessor financeiro pessoal no Telegram (e, se quiser, também no
-[WhatsApp](#whatsapp-opcional)). Você manda uma mensagem, de texto ou de voz, do jeito
-que falaria, ou a foto de um comprovante, e ele registra seus gastos e receitas, pergunta o
-que faltar e acompanha a fatura do cartão e o saldo do VR/VA.
+[WhatsApp](#whatsapp-opcional)). Você manda uma mensagem, de texto ou de voz,
+do jeito que falaria, e ele registra seus gastos e receitas, pergunta o que faltar e
+acompanha a fatura do cartão e o saldo do VR/VA.
 
 ```
 Você:  comprei uma cadeira de 500
@@ -42,9 +42,6 @@ Bot:   ✅ Registrado:
 
 - **Entende linguagem natural, em texto ou áudio:** "almoço 32 no pix", "ontem gastei 120
   no mercado", "uber 18,50 e café 7" (vira dois lançamentos), "recebi 1500 do estágio".
-- **Lê foto de comprovante:** mande a foto (ou o print) de um Pix, nota fiscal ou recibo da
-  maquininha e ele registra o total, a data e a forma de pagamento, mostrando o que leu. A
-  legenda completa a foto ("no débito do itaú").
 - **Pergunta o que faltar:** sem valor ("gastei no mercado"), ele pergunta quanto. Sem forma
   de pagamento, mostra botões. No crédito, pergunta em qual cartão. **Nada é salvo antes de
   você responder.**
@@ -127,7 +124,7 @@ outra pessoa são ignoradas.
 2. Clique em **Create API key** e copie a chave.
 
 > **Sobre privacidade:** nos termos da API do Gemini, o que é enviado na camada gratuita
-> (suas mensagens de gastos, áudios e fotos) pode ser usado pelo Google para melhorar os produtos.
+> (suas mensagens de gastos e áudios) pode ser usado pelo Google para melhorar os produtos.
 > Isso não acontece se você ativar o faturamento no Google Cloud.
 
 ### 5. Baixe o projeto
@@ -239,7 +236,6 @@ fatura como paga (o que libera o limite dela).
 | `ontem gastei 45 no ifood`     | Usa a data de ontem                                                    |
 | `uber 18 e café 7`             | Registra dois lançamentos (e pergunta a forma de pagamento uma vez só) |
 | 🎙️ Mensagem de voz             | Mesmo resultado, mostrando o que ele entendeu do áudio                 |
-| 📸 Foto de um comprovante      | Registra o total, com a data e a forma de pagamento do comprovante     |
 
 ### Comandos
 

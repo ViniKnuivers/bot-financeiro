@@ -16,16 +16,6 @@ export interface IncomingAudioMessage {
   receivedAt: Date;
 }
 
-export interface IncomingImageMessage {
-  /** Foto de um comprovante, nota ou recibo. */
-  image: Buffer;
-  /** Ex.: "image/jpeg". */
-  mimeType: string;
-  /** Legenda que veio junto com a foto (ex.: "no débito do itaú"). */
-  caption?: string;
-  receivedAt: Date;
-}
-
 /** Um botão anexado à resposta. O canal decide como desenhá-lo (ex.: botão inline). */
 export interface ReplyAction {
   label: string;
@@ -60,8 +50,6 @@ export interface MessageHandler {
   handleStart(): OutgoingMessage;
   handleText(message: IncomingTextMessage): Promise<OutgoingMessage>;
   handleAudio(message: IncomingAudioMessage): Promise<OutgoingMessage>;
-  /** Foto de comprovante: vira lançamento, como uma mensagem. */
-  handleImage(message: IncomingImageMessage): Promise<OutgoingMessage>;
   handleAction(actionId: string): Promise<ActionReply>;
   /** Últimos lançamentos registrados. */
   handleLatest(): Promise<OutgoingMessage>;

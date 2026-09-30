@@ -14,8 +14,6 @@ export const SHOW_NOTICES_ACTION = 'wa:ver';
  * duração). Voz do WhatsApp (Opus) ocupa ~2 KB/s: 400 KB são uns 3 minutos.
  */
 const MAX_AUDIO_BYTES = 400_000;
-/** O WhatsApp já comprime as fotos (até 5 MB). */
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 /** Quantos ids de mensagem lembrar para ignorar reenvios da Meta. */
 const REMEMBERED_IDS = 500;
@@ -178,23 +176,10 @@ export class WhatsAppChannel implements MessageChannel {
           }),
         ];
       }
-      case 'image': {
-        const media = await api.downloadMedia(message.mediaId, MAX_IMAGE_BYTES);
-        return [
-          await handler.handleImage({
-            image: media.data,
-            mimeType: (media.mimeType.split(';')[0] ?? message.mimeType).trim(),
-            ...(message.caption ? { caption: message.caption } : {}),
-            receivedAt: message.receivedAt,
-          }),
-        ];
-      }
       case 'action':
         return [await handler.handleAction(message.actionId)];
       case 'unsupported':
-        return [
-          { text: 'Por enquanto eu entendo mensagens de texto, de voz e fotos de comprovantes.' },
-        ];
+        return [{ text: 'Por enquanto eu entendo só mensagens de texto e de voz.' }];
     }
   }
 

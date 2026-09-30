@@ -61,7 +61,7 @@ enum PaymentMethod {
 enum InputSource {
   TEXT
   AUDIO
-  PHOTO // foto de comprovante
+  PHOTO // foto de comprovante (recurso removido; mantido para os lançamentos já feitos)
   RECURRING // lançado automaticamente por um gasto fixo
   SHEET // criado numa linha nova da planilha
 }

@@ -27,7 +27,6 @@ function handler() {
       }),
     ),
     handleAudio: vi.fn(() => Promise.resolve({ text: '✅ Registrado do áudio' })),
-    handleImage: vi.fn(() => Promise.resolve({ text: '✅ Registrado da foto' })),
     handleAction: vi.fn((id: string) =>
       Promise.resolve({ mode: 'replace' as const, text: `ação ${id}` }),
     ),
@@ -194,24 +193,6 @@ describe('WhatsAppChannel: conversa', () => {
     expect(h.handleAudio).toHaveBeenCalledOnce();
     expect(h.handleAudio).toHaveBeenCalledWith(expect.objectContaining({ mimeType: 'audio/ogg' }));
     expect(api.texts()[1]).toMatch(/longo demais/);
-  });
-
-  it('foto: baixa e manda para a IA com a legenda', async () => {
-    const { api, receive, incoming, handler: h } = setup();
-    api.media.set('foto', { data: Buffer.from('jpg'), mimeType: 'image/jpeg' });
-
-    await receive(
-      incoming({ kind: 'image', mediaId: 'foto', mimeType: 'image/jpeg', caption: 'no pix' }),
-    );
-
-    expect(h.handleImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        image: Buffer.from('jpg'),
-        mimeType: 'image/jpeg',
-        caption: 'no pix',
-      }),
-    );
-    expect(api.texts()).toEqual(['✅ Registrado da foto']);
   });
 
   it('outro número é ignorado; o mesmo número sem o 9º dígito é aceito', async () => {
