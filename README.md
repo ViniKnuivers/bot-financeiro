@@ -80,6 +80,12 @@ Bot:   ✅ Registrado:
   sua, com um **Painel** escuro com detalhes dourados: números do mês com comparação ao
   mês anterior, gráficos, orçamento e cartões com barras de uso, e uma lista para escolher
   o mês. Tudo se atualiza sozinho. Veja [Planilha Google](#planilha-google).
+- **Relatório do mês em PDF:** `/relatorio` manda o Painel do mês e a lista de todos os
+  lançamentos num PDF, com botões para os meses anteriores. No dia 1, o aviso do mês
+  fechado já vem com o PDF. Precisa da planilha.
+- **Backup diário no Google Drive (opcional):** toda madrugada, uma cópia completa dos seus
+  dados vai para uma pasta do seu Drive, guardando as 30 mais recentes. Veja
+  [Backup automático no Google Drive](#backup-automático-no-google-drive).
 - **Desfaz fácil:** cada registro tem um botão "Desfazer", e o comando `/desfazer` apaga o
   último lançamento.
 
@@ -242,6 +248,8 @@ fatura como paga (o que libera o limite dela).
 | `/lembretes` | Contas, faturas e lembretes que vencem nos próximos dias             |
 | `/planilha`  | Link da sua planilha e situação da sincronização                     |
 | `/grafico`   | Link direto para o Painel da planilha (números e gráficos)           |
+| `/relatorio` | Relatório do mês em PDF (Painel + todos os lançamentos)              |
+| `/backup`    | Situação do backup no Google Drive, com botão para fazer um agora    |
 | `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
 | `/ultimos`   | Seus 10 últimos lançamentos                                          |
 | `/desfazer`  | Apaga o último lançamento                                            |
@@ -502,6 +510,64 @@ mudanças no banco de dados são aplicadas sozinhas.
 
 ## Backup dos seus dados
 
+### Backup automático no Google Drive
+
+Todo dia, a partir das 3h, o bot faz uma cópia completa do banco e envia para a pasta
+**"Financeiro – backups"** do seu Google Drive, guardando as 30 mais recentes (as mais
+velhas vão para a lixeira do Drive). Se o computador estiver desligado nesse horário, o
+backup sai quando ele ligar. Se falhar, o bot tenta de novo a cada hora e avisa no chat.
+
+O bot pede só o acesso **`drive.file`**: ele enxerga apenas os arquivos que ele mesmo cria,
+e nunca o resto do seu Drive. Configure uma vez (~10 minutos), no mesmo projeto do Google
+Cloud da [planilha](#planilha-google):
+
+1. **Ative a API do Drive:** em
+   [console.cloud.google.com/apis/library/drive.googleapis.com](https://console.cloud.google.com/apis/library/drive.googleapis.com),
+   com o projeto da planilha selecionado, clique em **Ativar**.
+2. **Crie a tela de autorização:** em
+   [console.cloud.google.com/auth/overview](https://console.cloud.google.com/auth/overview),
+   clique em **Começar**. Nome do app: `bot-financeiro`; e-mail de suporte: o seu; público:
+   **Externo**.
+3. **Preencha o Branding** (menu da esquerda), que o Google exige para publicar:
+   - página inicial: o link do projeto no GitHub;
+   - política de privacidade: o link do [`PRIVACY.md`](PRIVACY.md) no GitHub;
+   - domínios autorizados: `github.com`;
+   - **sem logo** (com logo, o Google pede uma verificação que demora dias).
+4. **Dê a permissão:** em **Acesso a dados → Adicionar ou remover escopos**, marque o que
+   termina em `/auth/drive.file` e salve.
+5. **Publique:** em **Público-alvo → Publicar app**. O status precisa ficar **Em produção**:
+   em "Teste", a autorização vence a cada 7 dias. Não há revisão do Google, porque o
+   `drive.file` não é um acesso sensível.
+6. **Crie a credencial:** em **Clientes → Criar cliente**, tipo **App para computador**.
+   Copie o ID e a chave secreta para o `.env`:
+   ```env
+   GOOGLE_OAUTH_CLIENT_ID=123-abc.apps.googleusercontent.com
+   GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-...
+   ```
+7. **Reinicie o bot** (`docker compose --profile app up -d --build`) e mande **`/backup`**
+   no Telegram. Abra o link **no computador onde o bot roda**: no fim da autorização, o
+   Google volta para `http://127.0.0.1:3000`, o próprio bot. Se aparecer "O Google não
+   verificou este app", é esperado (o app é seu): clique em **Avançado → Acessar
+   bot-financeiro**. O bot confirma no chat e faz o primeiro backup.
+
+| Variável              | Padrão                  | Para quê                                      |
+| --------------------- | ----------------------- | --------------------------------------------- |
+| `BACKUP_KEEP`         | `30`                    | Quantas cópias guardar                        |
+| `BACKUP_HOUR`         | `3`                     | A partir de que hora sai o backup do dia      |
+| `OAUTH_REDIRECT_BASE` | `http://127.0.0.1:3000` | Endereço do bot para o retorno da autorização |
+
+**Para restaurar:** baixe o arquivo `.sql.gz` do Drive para a pasta do projeto e rode (no
+Windows, descompacte antes com o 7-Zip e siga o "Para restaurar" do backup manual):
+
+```bash
+gunzip -c financeiro-2026-09-30-0300.sql.gz | docker compose exec -T db psql -U financeiro -d financeiro
+```
+
+A restauração substitui os dados atuais pelos do arquivo. A autorização do Drive não vai
+dentro do backup (por segurança), então mande `/backup` de novo para reconectar.
+
+### Backup manual
+
 Faça de vez em quando, principalmente antes de atualizar. Na pasta do projeto:
 
 ```bash
@@ -618,8 +684,10 @@ src/
 │   ├── accounts/           # cartões e contas, saldo de VR/VA, faturas de crédito
 │   ├── payments/           # resolver: o que perguntar sobre o pagamento
 │   ├── pending/            # lançamentos esperando resposta
+│   ├── sheets/             # planilha Google: sincronização, Painel e relatório em PDF
+│   ├── backup/             # backup no Google Drive: pg_dump, OAuth (PKCE) e envio
 │   └── conversation/       # passo atual de conversas com vários passos
-├── http/server.ts          # Fastify: /health
+├── http/                   # Fastify: /health e o retorno da autorização do Google
 ├── lib/                    # datas, dinheiro, logger, Prisma
 └── test/                   # apoio aos testes (repositórios em memória)
 ```
@@ -660,6 +728,17 @@ src/
   lançamentos.
 - **Nome fixo do projeto Docker** (`name:` no `docker-compose.yml`). Sem ele, o volume do
   banco dependeria do nome da pasta, e baixar o ZIP numa pasta nova criaria um banco vazio.
+- **Relatório em PDF pela própria planilha.** A aba oculta "Relatório" é gerada pelo mesmo
+  código do Painel (uma "variante" com outra aba, outra célula de mês e outra área de
+  apoio), mais a lista do mês por `FILTER`. O PDF sai pela exportação do Google, só até a
+  última linha da lista, sem nenhuma dependência nova.
+- **Backup sem guardar a chave junto.** A autorização do Drive fica na tabela
+  `credentials`, que o `pg_dump` exporta só com a estrutura (`--exclude-table-data`). O
+  OAuth é de app para computador, com PKCE e `state` de uso único, e o retorno local só
+  aceita pedidos diretos (não repassados pelo ngrok).
+- **Nenhum segredo no log.** Algumas bibliotecas colocam o token na mensagem de erro (o
+  grammY inclui a URL `api.telegram.org/bot<token>` quando a rede falha). Toda linha de log
+  passa por um filtro que esconde tokens e códigos de autorização antes de ser escrita.
 - **Filtro de usuário e de chat privado.** Mensagens de outras pessoas são ignoradas sem
   resposta. O bot também ignora grupos, para seus gastos não aparecerem para outros.
 
