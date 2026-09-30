@@ -12,6 +12,7 @@ import { registerWhatsAppWebhook } from './channels/whatsapp/whatsapp-webhook.js
 import { WhatsAppWindow } from './channels/whatsapp/whatsapp-window.js';
 import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
+import { backupJob } from './jobs/backup.job.js';
 import { forecastAlertJob } from './jobs/forecast-alert.job.js';
 import { remindersJob } from './jobs/reminders.job.js';
 import { monthlyReportJob } from './jobs/monthly-report.job.js';
@@ -19,11 +20,16 @@ import { recurringJob } from './jobs/recurring.job.js';
 import { sheetRefreshJob } from './jobs/sheet-refresh.job.js';
 import { Scheduler } from './jobs/scheduler.js';
 import { localHour, toDateOnlyString } from './lib/dates.js';
+import { redactSecrets } from './lib/logger.js';
+import { registerOAuthCallback } from './http/oauth-callback.js';
 import { buildServer } from './http/server.js';
 import { createPrismaClient } from './lib/prisma.js';
 import { PrismaAccountRepository } from './modules/accounts/account.repository.js';
 import { PrismaInvoicePaymentRepository } from './modules/accounts/invoice-payment.repository.js';
 import { AccountService } from './modules/accounts/account.service.js';
+import { formatBackupResult } from './modules/backup/backup-messages.js';
+import { createBackup } from './modules/backup/create-backup.js';
+import { PrismaCredentialRepository } from './modules/backup/credential.repository.js';
 import { PrismaBudgetRepository } from './modules/budgets/budget.repository.js';
 import { BudgetService } from './modules/budgets/budget.service.js';
 import { PrismaChatStateRepository } from './modules/conversation/chat-state.repository.js';
@@ -47,10 +53,12 @@ import { TransactionService } from './modules/transactions/transaction.service.j
 // conecta as peças. O resto do código depende só de interfaces e parâmetros.
 
 function loggerOptions(env: Env): FastifyServerOptions['logger'] {
+  // Nenhum segredo vai para o log, mesmo que uma biblioteca o coloque numa mensagem de erro.
+  const hooks = { streamWrite: redactSecrets };
   if (env.NODE_ENV === 'development') {
-    return { level: env.LOG_LEVEL, transport: { target: 'pino-pretty' } };
+    return { level: env.LOG_LEVEL, hooks, transport: { target: 'pino-pretty' } };
   }
-  return { level: env.LOG_LEVEL };
+  return { level: env.LOG_LEVEL, hooks };
 }
 
 async function main(): Promise<void> {
@@ -128,6 +136,33 @@ async function main(): Promise<void> {
     },
   });
 
+  // Backup diário no Google Drive (opcional).
+  const backup = createBackup({
+    config: env.backup,
+    databaseUrl: env.DATABASE_URL,
+    credentials: new PrismaCredentialRepository(prisma),
+    jobState,
+    timeZone: env.APP_TIMEZONE,
+    logger: app.log,
+  });
+  if (backup) {
+    await registerOAuthCallback(app, {
+      connect: (query) => backup.connect(query),
+      // Confirma no chat e já faz o primeiro backup (sem segurar a página do navegador).
+      onConnected: () => {
+        // O backup não depende do aviso: se o Telegram falhar, a cópia sai do mesmo jeito.
+        const firstBackup = backup.run();
+        void (async () => {
+          await notifier.notify({ text: '✅ Google Drive conectado! Fazendo o primeiro backup…' });
+          await notifier.notify({ text: formatBackupResult(await firstBackup) });
+        })().catch((error: unknown) => {
+          app.log.error({ err: error }, 'backup: falha ao avisar a conexão');
+        });
+      },
+      logger: app.log,
+    });
+  }
+
   const assistant = new Assistant({
     parser: new GeminiTransactionParser({
       models: new GoogleGenAI({ apiKey: env.GEMINI_API_KEY }).models,
@@ -153,6 +188,7 @@ async function main(): Promise<void> {
     logger: app.log,
     timeZone: env.APP_TIMEZONE,
     ...(sheets ? { sheets } : {}),
+    ...(backup ? { backup } : {}),
   });
 
   // Canais ligados no .env (pelo menos um; os dois podem funcionar juntos).
@@ -230,6 +266,18 @@ async function main(): Promise<void> {
         now: () => new Date(),
         timeZone: env.APP_TIMEZONE,
       }),
+      ...(backup
+        ? [
+            backupJob({
+              backup,
+              jobState,
+              notifier,
+              now: () => new Date(),
+              timeZone: env.APP_TIMEZONE,
+              hour: env.BACKUP_HOUR,
+            }),
+          ]
+        : []),
       monthlyReportJob({
         jobState,
         notifier,

@@ -46,6 +46,7 @@ function handler() {
     ),
     handleSpreadsheet: reply('planilha'),
     handleCharts: reply('painel'),
+    handleBackup: reply('backup'),
   } satisfies MessageHandler;
 }
 

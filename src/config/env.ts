@@ -75,6 +75,15 @@ const envSchema = z.object({
     .transform((value) => (value?.trim() ? parseSpreadsheetId(value) : undefined)),
   GOOGLE_SERVICE_ACCOUNT_FILE: z.string().min(1).default('secrets/google-service-account.json'),
 
+  // Backup diário no Google Drive (opcional; veja "Backup automático" no README).
+  // Credencial OAuth do tipo "App para computador", do mesmo projeto da planilha.
+  GOOGLE_OAUTH_CLIENT_ID: optional(z.string().trim().min(1)),
+  GOOGLE_OAUTH_CLIENT_SECRET: optional(z.string().trim().min(1)),
+  // Para onde o Google volta depois da autorização: o próprio bot, só neste computador.
+  OAUTH_REDIRECT_BASE: z.url({ protocol: /^https?$/ }).default('http://127.0.0.1:3000'),
+  BACKUP_KEEP: z.coerce.number().int().min(1).max(365).default(30),
+  BACKUP_HOUR: z.coerce.number().int().min(0).max(23).default(3),
+
   APP_TIMEZONE: z
     .string()
     .refine(isValidTimeZone, 'fuso horário IANA inválido')
@@ -125,6 +134,21 @@ const configSchema = envSchema
           'configure pelo menos um canal: Telegram (TELEGRAM_BOT_TOKEN e ALLOWED_TELEGRAM_USER_ID) ou WhatsApp',
       });
     }
+    if (
+      (env.GOOGLE_OAUTH_CLIENT_ID === undefined) !==
+      (env.GOOGLE_OAUTH_CLIENT_SECRET === undefined)
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [
+          env.GOOGLE_OAUTH_CLIENT_ID === undefined
+            ? 'GOOGLE_OAUTH_CLIENT_ID'
+            : 'GOOGLE_OAUTH_CLIENT_SECRET',
+        ],
+        message:
+          'o backup no Google Drive precisa do ID e da chave secreta do cliente OAuth juntos',
+      });
+    }
     if (env.WHATSAPP_USAGE_WARNING_AT > env.WHATSAPP_FREE_MONTHLY_MESSAGES) {
       ctx.addIssue({
         code: 'custom',
@@ -159,10 +183,21 @@ const configSchema = envSchema
             usageWarningAt: env.WHATSAPP_USAGE_WARNING_AT,
           }
         : null,
+    backup:
+      env.GOOGLE_OAUTH_CLIENT_ID !== undefined && env.GOOGLE_OAUTH_CLIENT_SECRET !== undefined
+        ? {
+            clientId: env.GOOGLE_OAUTH_CLIENT_ID,
+            clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+            redirectUri: `${env.OAUTH_REDIRECT_BASE.replace(/\/+$/, '')}/oauth/google/callback`,
+            keep: env.BACKUP_KEEP,
+            hour: env.BACKUP_HOUR,
+          }
+        : null,
   }));
 
 export type Env = z.infer<typeof configSchema>;
 export type WhatsAppConfig = NonNullable<Env['whatsapp']>;
+export type BackupConfig = NonNullable<Env['backup']>;
 
 function isValidTimeZone(timeZone: string): boolean {
   try {

@@ -73,6 +73,8 @@ export interface MessageHandler {
   handleCharts(): Promise<OutgoingMessage>;
   /** Relatório do mês em PDF (Painel + lançamentos). */
   handleReport(): Promise<OutgoingMessage>;
+  /** Situação do backup no Google Drive (ou o link para conectar). */
+  handleBackup(): Promise<OutgoingMessage>;
 }
 
 /** Envia mensagens por iniciativa do bot (gastos fixos, aviso do dia 1, alertas). */

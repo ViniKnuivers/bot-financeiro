@@ -103,4 +103,35 @@ describe('loadEnv', () => {
       /APP_TIMEZONE/,
     );
   });
+
+  describe('backup no Google Drive', () => {
+    it('desligado por padrão; com o cliente OAuth, monta o endereço de retorno', () => {
+      expect(loadEnv(validEnv).backup).toBeNull();
+
+      const env = loadEnv({
+        ...validEnv,
+        GOOGLE_OAUTH_CLIENT_ID: ' id.apps.googleusercontent.com ',
+        GOOGLE_OAUTH_CLIENT_SECRET: 'GOCSPX-segredo',
+      });
+
+      expect(env.backup).toEqual({
+        clientId: 'id.apps.googleusercontent.com',
+        clientSecret: 'GOCSPX-segredo',
+        redirectUri: 'http://127.0.0.1:3000/oauth/google/callback',
+        keep: 30,
+        hour: 3,
+      });
+    });
+
+    it('ID sem a chave secreta (ou o contrário) dá erro claro', () => {
+      expect(() => loadEnv({ ...validEnv, GOOGLE_OAUTH_CLIENT_ID: 'id' })).toThrow(
+        /ID e da chave secreta[\s\S]*GOOGLE_OAUTH_CLIENT_SECRET/,
+      );
+    });
+
+    it('recusa hora e quantidade fora do intervalo', () => {
+      expect(() => loadEnv({ ...validEnv, BACKUP_HOUR: '24' })).toThrow(/BACKUP_HOUR/);
+      expect(() => loadEnv({ ...validEnv, BACKUP_KEEP: '0' })).toThrow(/BACKUP_KEEP/);
+    });
+  });
 });

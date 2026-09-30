@@ -25,6 +25,8 @@ import type { ChatStateRepository } from '../modules/conversation/chat-state.rep
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
 import type { RecurringRun, RecurringService } from '../modules/recurring/recurring.service.js';
 import type { ReportService } from '../modules/reports/report.service.js';
+import { formatBackupResult, formatBackupStatus } from '../modules/backup/backup-messages.js';
+import type { BackupService } from '../modules/backup/backup.service.js';
 import type { SheetSyncService } from '../modules/sheets/sheet-sync.service.js';
 import { SheetsError } from '../modules/sheets/spreadsheet-gateway.js';
 import type { TransactionService } from '../modules/transactions/transaction.service.js';
@@ -70,6 +72,8 @@ export interface AssistantDeps {
   timeZone?: string;
   /** Planilha Google; ausente quando não configurada. */
   sheets?: SpreadsheetLink;
+  /** Backup no Google Drive; ausente quando não configurado. */
+  backup?: Pick<BackupService, 'status' | 'run' | 'authorizationUrl'>;
 }
 
 /** O que o assistente usa da sincronização com a planilha. */
@@ -82,6 +86,7 @@ const SPREADSHEET_SYNC_ACTION = 'sh:sync';
 
 const SUMMARY_PREFIX = 'rs:';
 const REPORT_PREFIX = 'rp:';
+const BACKUP_NOW_ACTION = 'bk:now';
 
 /**
  * O "cérebro" do bot, independente de canal. Recebe a mensagem e decide o caminho:
@@ -249,6 +254,7 @@ export class Assistant implements MessageHandler {
       await this.deps.sheets?.syncNow({ force: true });
       return { mode: 'replace', ...(await this.handleSpreadsheet()) };
     }
+    if (actionId === BACKUP_NOW_ACTION) return this.backupNow();
     return this.afterChange(await this.routeAction(actionId));
   }
 
@@ -397,6 +403,31 @@ export class Assistant implements MessageHandler {
         actions,
       };
     }
+  }
+
+  async handleBackup(): Promise<OutgoingMessage> {
+    const { backup } = this.deps;
+    if (!backup) {
+      return {
+        text: '☁️ O backup no Google Drive ainda não está configurado. O passo a passo está no README, seção "Backup automático no Google Drive".',
+      };
+    }
+    const status = await backup.status();
+    const text = formatBackupStatus(status, {
+      authorizationUrl: status.connected ? null : backup.authorizationUrl(),
+      timeZone: this.deps.timeZone ?? 'America/Sao_Paulo',
+    });
+    if (!status.connected) return { text };
+    return { text, actions: [[{ label: '☁️ Fazer backup agora', id: BACKUP_NOW_ACTION }]] };
+  }
+
+  private async backupNow(): Promise<ActionReply> {
+    if (!this.deps.backup) return { mode: 'replace', ...(await this.handleBackup()) };
+    const result = await this.deps.backup.run();
+    const status = await this.handleBackup();
+    // Na falha, a própria situação já mostra o motivo (e o link, se a autorização caiu).
+    const text = result.ok ? `${formatBackupResult(result)}\n\n${status.text}` : status.text;
+    return { ...status, mode: 'replace', text };
   }
 
   handleCharts(): Promise<OutgoingMessage> {

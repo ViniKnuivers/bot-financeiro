@@ -19,6 +19,9 @@ FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
+# pg_dump 18 (mesma versão do banco) para o backup diário no Google Drive.
+RUN apk add --no-cache postgresql18-client
+
 COPY package.json package-lock.json ./
 # --ignore-scripts: o postinstall (prisma generate) não é necessário aqui, o client
 # gerado já foi compilado para dist/ no estágio anterior.

@@ -29,6 +29,16 @@ export function localHour(instant: Date, timeZone: string): number {
   return Number(hour ?? 0);
 }
 
+/** Hora e minuto ("03:05") de um instante no fuso informado. */
+export function localTime(instant: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(instant);
+}
+
 /** Semana ISO ("2026-W41"), para avisos que saem no máximo uma vez por semana. */
 export function isoWeek(dateOnly: string): string {
   const date = parseDateOnly(dateOnly);

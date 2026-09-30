@@ -72,6 +72,9 @@ export class TelegramChannel implements MessageChannel {
       await ctx.replyWithChatAction('upload_document');
       await sendReply(ctx, await handler.handleReport());
     });
+    this.bot.command('backup', async (ctx) => {
+      await sendReply(ctx, await handler.handleBackup());
+    });
     this.bot.command('grafico', async (ctx) => {
       await sendReply(ctx, await handler.handleCharts());
     });
@@ -166,6 +169,7 @@ export class TelegramChannel implements MessageChannel {
       { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
       { command: 'lembretes', description: 'Contas e faturas que vencem logo' },
       { command: 'relatorio', description: 'Relatório do mês em PDF' },
+      { command: 'backup', description: 'Backup diário no Google Drive' },
       { command: 'desfazer', description: 'Apaga o último lançamento' },
       { command: 'cartoes', description: 'Seus cartões, contas e saldos' },
       { command: 'pendentes', description: 'Lançamentos esperando resposta' },

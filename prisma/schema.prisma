@@ -228,6 +228,16 @@ model JobState {
   @@map("job_state")
 }
 
+/// Chaves recebidas em uso (ex.: autorização do Google Drive para o backup). O backup
+/// exporta esta tabela sem os dados, para o arquivo no Drive não carregar a chave.
+model Credential {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("credentials")
+}
+
 /// Como cada linha estava na última sincronização com a planilha. Comparando com a
 /// planilha e com o banco, dá para saber quem mudou o quê (edição pela planilha).
 model SheetRowSnapshot {

@@ -68,6 +68,7 @@ export const WELCOME = [
   '/lembretes: contas e faturas que vencem nos próximos dias',
   '/planilha e /grafico: sua planilha Google com tudo (se configurada)',
   '/relatorio: o relatório do mês em PDF',
+  '/backup: cópia diária dos seus dados no Google Drive (se configurado)',
   '/cartoes: seus cartões, contas e saldos',
   '/pendentes: lançamentos esperando sua resposta',
   '/ultimos: seus 10 últimos lançamentos',

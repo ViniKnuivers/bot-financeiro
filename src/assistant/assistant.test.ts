@@ -28,7 +28,8 @@ import { RecurringService } from '../modules/recurring/recurring.service.js';
 import { ReportService } from '../modules/reports/report.service.js';
 import { CHAT_STATE_TTL_MS } from './conversation-state.js';
 import { SheetsError } from '../modules/sheets/spreadsheet-gateway.js';
-import { Assistant, type SpreadsheetLink } from './assistant.js';
+import type { BackupResult, BackupStatus } from '../modules/backup/backup.service.js';
+import { Assistant, type AssistantDeps, type SpreadsheetLink } from './assistant.js';
 
 const RECEIVED_AT = new Date('2026-09-24T15:00:00Z');
 
@@ -58,7 +59,7 @@ function result(overrides: Partial<ParseResult>): ParseResult {
   };
 }
 
-function setup(options: { sheets?: SpreadsheetLink } = {}) {
+function setup(options: { sheets?: SpreadsheetLink; backup?: AssistantDeps['backup'] } = {}) {
   let now = RECEIVED_AT;
   const clock = () => now;
   const parse = vi.fn<TransactionParser['parse']>();
@@ -104,6 +105,7 @@ function setup(options: { sheets?: SpreadsheetLink } = {}) {
     logger,
     now: clock,
     ...(options.sheets ? { sheets: options.sheets } : {}),
+    ...(options.backup ? { backup: options.backup } : {}),
   });
 
   /** Id do botão com esse texto (falha o teste se ele não existir). */
@@ -1255,6 +1257,90 @@ describe('Assistant', () => {
 
       expect((await assistant.handleSpreadsheet()).text).toContain('ainda não está configurada');
       expect((await assistant.handleCharts()).text).toContain('ainda não está configurada');
+    });
+  });
+
+  describe('/backup', () => {
+    function fakeBackup(status: Partial<BackupStatus> = {}) {
+      const state: BackupStatus = {
+        connected: true,
+        lastSuccess: null,
+        lastFailure: null,
+        keep: 30,
+        hour: 3,
+        ...status,
+      };
+      return {
+        state,
+        status: vi.fn(() => Promise.resolve({ ...state })),
+        authorizationUrl: vi.fn(() => 'https://accounts.google.com/o/oauth2/v2/auth?state=abc'),
+        run: vi.fn<() => Promise<BackupResult>>(() => {
+          const record = {
+            at: '2026-09-24T15:00:00.000Z',
+            name: 'financeiro-2026-09-24-1200.sql.gz',
+            bytes: 26_000,
+          };
+          state.lastSuccess = record;
+          return Promise.resolve({ ok: true, record, pruned: 1 });
+        }),
+      };
+    }
+
+    it('sem configurar, explica onde fica o passo a passo', async () => {
+      const { assistant } = setup();
+
+      expect((await assistant.handleBackup()).text).toContain('seção "Backup automático');
+    });
+
+    it('sem conexão, manda o link de autorização (sem botão de backup)', async () => {
+      const backup = fakeBackup({ connected: false });
+      const { assistant } = setup({ backup });
+
+      const reply = await assistant.handleBackup();
+
+      expect(reply.text).toContain('ainda não conectado');
+      expect(reply.text).toContain('https://accounts.google.com/o/oauth2/v2/auth?state=abc');
+      expect(reply.actions).toBeUndefined();
+    });
+
+    it('conectado: mostra o último backup; o botão faz um agora', async () => {
+      const backup = fakeBackup({
+        lastSuccess: { at: '2026-09-24T06:00:00.000Z', name: 'x.sql.gz', bytes: 2048 },
+      });
+      const { assistant, button } = setup({ backup });
+
+      const menu = await assistant.handleBackup();
+      expect(menu.text).toContain('Último: 24/09/2026 03:00 · 2 KB');
+      expect(menu.text).toContain('guardando as 30 cópias');
+
+      const done = await assistant.handleAction(button(menu, 'Fazer backup agora'));
+
+      expect(backup.run).toHaveBeenCalledOnce();
+      expect(done.mode).toBe('replace');
+      expect(done.text).toMatch(/^✅ Backup feito: financeiro-2026-09-24-1200\.sql\.gz \(25 KB\)/);
+      expect(done.text).toContain('A cópia mais antiga foi para a lixeira');
+      expect(done.text).toContain('Último: 24/09/2026 12:00');
+    });
+
+    it('se o backup falha, mostra o motivo na própria situação', async () => {
+      const backup = fakeBackup();
+      backup.run.mockImplementation(() => {
+        const failure = {
+          at: '2026-09-24T15:00:00.000Z',
+          reason: 'failed' as const,
+          message: 'Drive: HTTP 503',
+        };
+        backup.state.lastFailure = failure;
+        return Promise.resolve({ ok: false, failure });
+      });
+      const { assistant } = setup({ backup });
+
+      const reply = await assistant.handleAction('bk:now');
+
+      expect(reply.text).toContain(
+        '⚠️ A última tentativa falhou (24/09/2026 12:00): Drive: HTTP 503',
+      );
+      expect(reply.actions?.flat()[0]?.id).toBe('bk:now');
     });
   });
 });

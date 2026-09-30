@@ -36,6 +36,7 @@ const COMMANDS: Record<string, Command> = {
   fixos: (h) => one(h.handleRecurring()),
   lembretes: (h) => one(h.handleReminders()),
   relatorio: (h) => one(h.handleReport()),
+  backup: (h) => one(h.handleBackup()),
   planilha: (h) => one(h.handleSpreadsheet()),
   grafico: (h) => one(h.handleCharts()),
   pendentes: (h) => h.handlePending(),

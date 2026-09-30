@@ -5,6 +5,7 @@ import type {
   ReminderRepository,
 } from '../modules/reminders/reminder.repository.js';
 import type { JobStateRepository } from '../jobs/job-state.repository.js';
+import type { CredentialRepository } from '../modules/backup/credential.repository.js';
 import type {
   Account,
   AccountPatch,
@@ -254,6 +255,22 @@ export function inMemoryJobState(): JobStateRepository & { values: Map<string, s
     get: (key) => Promise.resolve(values.get(key) ?? null),
     set: (key, value) => {
       values.set(key, value);
+      return Promise.resolve();
+    },
+  };
+}
+
+export function inMemoryCredentials(): CredentialRepository & { values: Map<string, string> } {
+  const values = new Map<string, string>();
+  return {
+    values,
+    get: (key) => Promise.resolve(values.get(key) ?? null),
+    set: (key, value) => {
+      values.set(key, value);
+      return Promise.resolve();
+    },
+    delete: (key) => {
+      values.delete(key);
       return Promise.resolve();
     },
   };
