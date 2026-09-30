@@ -80,6 +80,16 @@ Bot:   ✅ Registrado:
   sua, com um **Painel** escuro com detalhes dourados: números do mês com comparação ao
   mês anterior, gráficos, orçamento e cartões com barras de uso, e uma lista para escolher
   o mês. Tudo se atualiza sozinho. Veja [Planilha Google](#planilha-google).
+- **Metas de economia:** "Viagem: R$ 5.000 até dezembro". Os aportes com o nome da meta
+  ("guardei 300 pra viagem") contam no progresso, e o bot mostra quanto guardar por mês e
+  comemora quando você bate. A meta também pode acompanhar um investimento que você já tem.
+- **Resumo semanal:** todo domingo às 19h, quanto você gastou, recebeu e guardou na semana,
+  para onde foi o dinheiro e observações calculadas com os seus números (categoria que subiu
+  em relação à média, orçamento perto do limite, previsão do mês, metas). `/semana` mostra a
+  semana até agora.
+- **Retrospectiva do ano:** em 1º de janeiro, o ano em números: quanto entrou, saiu e foi
+  investido, melhor e pior mês, categorias, maior gasto e lugar mais frequente.
+  `/retrospectiva` mostra o ano até agora.
 - **Relatório do mês em PDF:** `/relatorio` manda o Painel do mês e a lista de todos os
   lançamentos num PDF, com botões para os meses anteriores. No dia 1, o aviso do mês
   fechado já vem com o PDF. Precisa da planilha.
@@ -239,21 +249,24 @@ fatura como paga (o que libera o limite dela).
 
 ### Comandos
 
-| Comando      | O que faz                                                            |
-| ------------ | -------------------------------------------------------------------- |
-| `/cartoes`   | Seus cartões e contas: cadastrar, gerenciar, saldos, fatura e limite |
-| `/resumo`    | O mês: receitas, despesas, sobra, investido e saldos                 |
-| `/orcamento` | Limites mensais por categoria, com aviso aos 80% e 100%              |
-| `/fixos`     | Gastos fixos que o bot lança sozinho (ou lembra) todo mês            |
-| `/lembretes` | Contas, faturas e lembretes que vencem nos próximos dias             |
-| `/planilha`  | Link da sua planilha e situação da sincronização                     |
-| `/grafico`   | Link direto para o Painel da planilha (números e gráficos)           |
-| `/relatorio` | Relatório do mês em PDF (Painel + todos os lançamentos)              |
-| `/backup`    | Situação do backup no Google Drive, com botão para fazer um agora    |
-| `/pendentes` | Lançamentos esperando você responder a forma de pagamento            |
-| `/ultimos`   | Seus 10 últimos lançamentos                                          |
-| `/desfazer`  | Apaga o último lançamento                                            |
-| `/start`     | Boas-vindas e exemplos                                               |
+| Comando          | O que faz                                                             |
+| ---------------- | --------------------------------------------------------------------- |
+| `/cartoes`       | Seus cartões e contas: cadastrar, gerenciar, saldos, fatura e limite  |
+| `/resumo`        | O mês: receitas, despesas, sobra, investido e saldos                  |
+| `/orcamento`     | Limites mensais por categoria, com aviso aos 80% e 100%               |
+| `/fixos`         | Gastos fixos que o bot lança sozinho (ou lembra) todo mês             |
+| `/lembretes`     | Contas, faturas e lembretes que vencem nos próximos dias              |
+| `/metas`         | Metas de economia: progresso, quanto guardar por mês, criar e remover |
+| `/semana`        | Resumo da semana até agora, com observações                           |
+| `/retrospectiva` | O ano em números (e os anos anteriores)                               |
+| `/planilha`      | Link da sua planilha e situação da sincronização                      |
+| `/grafico`       | Link direto para o Painel da planilha (números e gráficos)            |
+| `/relatorio`     | Relatório do mês em PDF (Painel + todos os lançamentos)               |
+| `/backup`        | Situação do backup no Google Drive, com botão para fazer um agora     |
+| `/pendentes`     | Lançamentos esperando você responder a forma de pagamento             |
+| `/ultimos`       | Seus 10 últimos lançamentos                                           |
+| `/desfazer`      | Apaga o último lançamento                                             |
+| `/start`         | Boas-vindas e exemplos                                                |
 
 **Gastos fixos:** em `/fixos → Adicionar`, mande o gasto como sempre ("aluguel 1200 no pix")
 e diga o dia do mês. Se o computador estiver desligado no dia, o bot lança quando ligar
@@ -684,6 +697,8 @@ src/
 │   ├── accounts/           # cartões e contas, saldo de VR/VA, faturas de crédito
 │   ├── payments/           # resolver: o que perguntar sobre o pagamento
 │   ├── pending/            # lançamentos esperando resposta
+│   ├── goals/              # metas de economia (progresso pelos aportes)
+│   ├── insights/           # perguntas, previsão, resumo semanal e retrospectiva
 │   ├── sheets/             # planilha Google: sincronização, Painel e relatório em PDF
 │   ├── backup/             # backup no Google Drive: pg_dump, OAuth (PKCE) e envio
 │   └── conversation/       # passo atual de conversas com vários passos
@@ -728,6 +743,10 @@ src/
   lançamentos.
 - **Nome fixo do projeto Docker** (`name:` no `docker-compose.yml`). Sem ele, o volume do
   banco dependeria do nome da pasta, e baixar o ZIP numa pasta nova criaria um banco vazio.
+- **Observações sem IA.** O resumo semanal e a retrospectiva são calculados pelo bot com os
+  seus lançamentos (média das 4 semanas anteriores, proporcional numa semana em curso), sem
+  gastar cota nem arriscar números inventados. A meta não guarda saldo: é o saldo do destino
+  de aporte, calculado na hora, então desfazer um aporte corrige a meta sozinho.
 - **Relatório em PDF pela própria planilha.** A aba oculta "Relatório" é gerada pelo mesmo
   código do Painel (uma "variante" com outra aba, outra célula de mês e outra área de
   apoio), mais a lista do mês por `FILTER`. O PDF sai pela exportação do Google, só até a

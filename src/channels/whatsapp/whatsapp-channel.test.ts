@@ -47,6 +47,9 @@ function handler() {
     handleSpreadsheet: reply('planilha'),
     handleCharts: reply('painel'),
     handleBackup: reply('backup'),
+    handleGoals: reply('metas'),
+    handleWeek: reply('semana'),
+    handleRetrospective: reply('retrospectiva'),
   } satisfies MessageHandler;
 }
 

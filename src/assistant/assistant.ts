@@ -20,6 +20,7 @@ import type { AccountService } from '../modules/accounts/account.service.js';
 import type { BudgetService } from '../modules/budgets/budget.service.js';
 import type { InsightsService } from '../modules/insights/insights.service.js';
 import type { JobStateRepository } from '../jobs/job-state.repository.js';
+import type { GoalService } from '../modules/goals/goal.service.js';
 import type { ReminderService } from '../modules/reminders/reminder.service.js';
 import type { ChatStateRepository } from '../modules/conversation/chat-state.repository.js';
 import type { PendingRepository } from '../modules/pending/pending.repository.js';
@@ -37,6 +38,8 @@ import { ConversationState } from './conversation-state.js';
 import { PaymentFlow, UNDO_PREFIX } from './payment-flow.js';
 import { RecurringFlow } from './recurring-flow.js';
 import { RemindersFlow } from './reminders-flow.js';
+import { GoalsFlow } from './goals-flow.js';
+import { formatWeek, formatYear } from './planning-replies.js';
 import {
   formatMonth,
   formatHeard,
@@ -60,9 +63,11 @@ export interface AssistantDeps {
   reports: ReportService;
   budgets: BudgetService;
   /** Respostas às perguntas e previsão do mês. */
-  insights: Pick<InsightsService, 'answer' | 'forecast'>;
+  insights: Pick<InsightsService, 'answer' | 'forecast' | 'week' | 'year' | 'yearsWithData'>;
   /** Lembretes avulsos ("me lembra de pagar o IPVA dia 10"). */
   reminders: ReminderService;
+  /** Metas de economia (/metas). */
+  goals: GoalService;
   /** Guarda quais avisos de fatura e de conta fixa já saíram. */
   jobState: JobStateRepository;
   logger: Logger;
@@ -87,6 +92,7 @@ const SPREADSHEET_SYNC_ACTION = 'sh:sync';
 const SUMMARY_PREFIX = 'rs:';
 const REPORT_PREFIX = 'rp:';
 const BACKUP_NOW_ACTION = 'bk:now';
+const YEAR_PREFIX = 'rt:';
 
 /**
  * O "cérebro" do bot, independente de canal. Recebe a mensagem e decide o caminho:
@@ -99,6 +105,7 @@ export class Assistant implements MessageHandler {
   private readonly budgetFlow: BudgetFlow;
   private readonly recurringFlow: RecurringFlow;
   private readonly remindersFlow: RemindersFlow;
+  private readonly goalsFlow: GoalsFlow;
   private readonly now: () => Date;
   private readonly today: () => string;
 
@@ -124,6 +131,7 @@ export class Assistant implements MessageHandler {
       now: this.now,
       interpret: (text) => this.interpret({ text, now: this.now() }),
     });
+    this.goalsFlow = new GoalsFlow({ ...deps, state, today: this.today });
     this.remindersFlow = new RemindersFlow({
       ...deps,
       payments: this.payments,
@@ -145,7 +153,8 @@ export class Assistant implements MessageHandler {
     const flowReply =
       (await this.accountsFlow.handleText(message.text)) ??
       (await this.budgetFlow.handleText(message.text)) ??
-      (await this.recurringFlow.handleText(message.text));
+      (await this.recurringFlow.handleText(message.text)) ??
+      (await this.goalsFlow.handleText(message.text));
     if (flowReply) return flowReply;
 
     return this.process({
@@ -181,14 +190,18 @@ export class Assistant implements MessageHandler {
   private async interpret(input: ParseInput): Promise<ParseResult | OutgoingMessage> {
     const { parser, accounts, reports, logger } = this.deps;
     try {
-      const [known, investments] = await Promise.all([
+      const [known, investments, goalDestinations] = await Promise.all([
         accounts.listActive(),
         reports.investments(),
+        this.deps.goals.destinations(),
       ]);
       const result = await parser.parse({
         ...input,
         accounts: known.map(({ name, kind }) => ({ name, kind })),
-        investmentDestinations: investments.map((p) => p.destination),
+        // Metas entram como destinos: "guardei 300 pra viagem" vira aporte em "Viagem".
+        investmentDestinations: [
+          ...new Set([...investments.map((p) => p.destination), ...goalDestinations]),
+        ],
       });
       logger.debug(
         { intent: result.intent, count: result.transactions.length },
@@ -266,6 +279,11 @@ export class Assistant implements MessageHandler {
         return { mode: 'replace', ...(await this.handleReport(month)) };
       }
     }
+    if (actionId.startsWith(YEAR_PREFIX)) {
+      const year = actionId.slice(YEAR_PREFIX.length);
+      if (/^\d{4}$/.test(year))
+        return { mode: 'replace', ...(await this.handleRetrospective(year)) };
+    }
     if (actionId.startsWith(SUMMARY_PREFIX)) {
       const month = actionId.slice(SUMMARY_PREFIX.length);
       if (/^\d{4}-\d{2}$/.test(month))
@@ -278,7 +296,8 @@ export class Assistant implements MessageHandler {
       (await this.accountsFlow.handleAction(actionId)) ??
       (await this.budgetFlow.handleAction(actionId)) ??
       (await this.recurringFlow.handleAction(actionId)) ??
-      (await this.remindersFlow.handleAction(actionId));
+      (await this.remindersFlow.handleAction(actionId)) ??
+      (await this.goalsFlow.handleAction(actionId));
     if (reply) return reply;
 
     this.deps.logger.warn({ actionId }, 'ação desconhecida');
@@ -340,6 +359,57 @@ export class Assistant implements MessageHandler {
 
   handleRecurring(): Promise<OutgoingMessage> {
     return this.recurringFlow.menu();
+  }
+
+  handleGoals(): Promise<OutgoingMessage> {
+    return this.goalsFlow.menu();
+  }
+
+  /** /semana: a semana até hoje (completa se hoje for domingo). */
+  handleWeek(): Promise<OutgoingMessage> {
+    return this.weekMessage(this.today());
+  }
+
+  /** Resumo da semana que termina em `end` (o de domingo às 19h usa o próprio domingo). */
+  async weekMessage(end: string): Promise<OutgoingMessage> {
+    const { insights, goals } = this.deps;
+    const [week, forecast, progress] = await Promise.all([
+      insights.week(end),
+      insights.forecast(),
+      goals.list(),
+    ]);
+    const partial = new Date(`${end}T00:00:00.000Z`).getUTCDay() !== 0;
+    return { text: formatWeek(week, { forecast, goals: progress, partial }) };
+  }
+
+  /** Retrospectiva de um ano que já fechou (1º de janeiro). */
+  async yearMessage(year: string): Promise<OutgoingMessage> {
+    const { text } = await this.handleRetrospective(year);
+    return { text };
+  }
+
+  /**
+   * /retrospectiva: o ano em números (o atual, até hoje), com botões para os anos
+   * anteriores que tiverem lançamentos.
+   */
+  async handleRetrospective(year = this.today().slice(0, 4)): Promise<OutgoingMessage> {
+    const { insights, goals } = this.deps;
+    const [summary, years, progress] = await Promise.all([
+      insights.year(year),
+      insights.yearsWithData(),
+      goals.list(),
+    ]);
+    const reached = progress
+      .filter(({ goal }) => goal.achievedAt?.toISOString().startsWith(year))
+      .map(({ goal }) => goal.name);
+    const text = formatYear(summary, {
+      partial: year === this.today().slice(0, 4),
+      goalsReached: reached,
+    });
+    const others = years.filter((y) => y !== year).slice(0, 3);
+    return others.length > 0
+      ? { text, actions: [others.map((y) => ({ label: `🗓️ ${y}`, id: `${YEAR_PREFIX}${y}` }))] }
+      : { text };
   }
 
   handleReminders(): Promise<OutgoingMessage> {

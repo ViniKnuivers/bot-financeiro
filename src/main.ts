@@ -14,6 +14,8 @@ import { loadEnv, type Env } from './config/env.js';
 import { PrismaJobStateRepository } from './jobs/job-state.repository.js';
 import { backupJob } from './jobs/backup.job.js';
 import { forecastAlertJob } from './jobs/forecast-alert.job.js';
+import { weeklySummaryJob } from './jobs/weekly-summary.job.js';
+import { yearlyRetrospectiveJob } from './jobs/yearly-retrospective.job.js';
 import { remindersJob } from './jobs/reminders.job.js';
 import { monthlyReportJob } from './jobs/monthly-report.job.js';
 import { recurringJob } from './jobs/recurring.job.js';
@@ -30,6 +32,8 @@ import { AccountService } from './modules/accounts/account.service.js';
 import { formatBackupResult } from './modules/backup/backup-messages.js';
 import { createBackup } from './modules/backup/create-backup.js';
 import { PrismaCredentialRepository } from './modules/backup/credential.repository.js';
+import { PrismaGoalRepository } from './modules/goals/goal.repository.js';
+import { GoalService } from './modules/goals/goal.service.js';
 import { PrismaBudgetRepository } from './modules/budgets/budget.repository.js';
 import { BudgetService } from './modules/budgets/budget.service.js';
 import { PrismaChatStateRepository } from './modules/conversation/chat-state.repository.js';
@@ -106,6 +110,12 @@ async function main(): Promise<void> {
   const reports = new ReportService(transactionRepository, accounts);
   const budgets = new BudgetService(new PrismaBudgetRepository(prisma));
   const jobState = new PrismaJobStateRepository(prisma);
+  const goals = new GoalService({
+    goals: new PrismaGoalRepository(prisma),
+    investments: () => reports.investments(),
+    month: () => today().slice(0, 7),
+    now: () => new Date(),
+  });
   const insights = new InsightsService({
     transactions: transactionRepository,
     accounts,
@@ -179,6 +189,7 @@ async function main(): Promise<void> {
     reports,
     budgets,
     insights,
+    goals,
     reminders: new ReminderService(new PrismaReminderRepository(prisma), {
       today,
       hour: () => localHour(new Date(), env.APP_TIMEZONE),
@@ -278,6 +289,20 @@ async function main(): Promise<void> {
             }),
           ]
         : []),
+      weeklySummaryJob({
+        jobState,
+        notifier,
+        now: () => new Date(),
+        timeZone: env.APP_TIMEZONE,
+        weekMessage: (sunday) => assistant.weekMessage(sunday),
+      }),
+      yearlyRetrospectiveJob({
+        jobState,
+        notifier,
+        now: () => new Date(),
+        timeZone: env.APP_TIMEZONE,
+        yearMessage: (year) => assistant.yearMessage(year),
+      }),
       monthlyReportJob({
         jobState,
         notifier,

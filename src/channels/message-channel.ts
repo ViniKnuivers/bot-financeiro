@@ -65,6 +65,12 @@ export interface MessageHandler {
   handleBudgets(): Promise<OutgoingMessage>;
   /** Menu de gastos fixos. */
   handleRecurring(): Promise<OutgoingMessage>;
+  /** Metas de economia. */
+  handleGoals(): Promise<OutgoingMessage>;
+  /** Resumo da semana até hoje. */
+  handleWeek(): Promise<OutgoingMessage>;
+  /** O ano em números. */
+  handleRetrospective(): Promise<OutgoingMessage>;
   /** Próximos lembretes (avulsos, faturas e contas fixas). */
   handleReminders(): Promise<OutgoingMessage>;
   /** Link e situação da planilha Google. */

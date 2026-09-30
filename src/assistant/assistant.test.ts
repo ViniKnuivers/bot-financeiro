@@ -13,6 +13,7 @@ import {
   InMemoryAccountRepository,
   InMemoryBudgetRepository,
   InMemoryChatStateRepository,
+  InMemoryGoalRepository,
   InMemoryInvoicePaymentRepository,
   InMemoryPendingRepository,
   InMemoryRecurringRepository,
@@ -29,6 +30,7 @@ import { ReportService } from '../modules/reports/report.service.js';
 import { CHAT_STATE_TTL_MS } from './conversation-state.js';
 import { SheetsError } from '../modules/sheets/spreadsheet-gateway.js';
 import type { BackupResult, BackupStatus } from '../modules/backup/backup.service.js';
+import { GoalService } from '../modules/goals/goal.service.js';
 import { Assistant, type AssistantDeps, type SpreadsheetLink } from './assistant.js';
 
 const RECEIVED_AT = new Date('2026-09-24T15:00:00Z');
@@ -80,6 +82,14 @@ function setup(options: { sheets?: SpreadsheetLink; backup?: AssistantDeps['back
   const budgetService = new BudgetService(budgets);
   const reminderRepository = new InMemoryReminderRepository();
   const jobState = inMemoryJobState();
+  const goalRepository = new InMemoryGoalRepository();
+  const reports = new ReportService(transactions, accounts);
+  const goals = new GoalService({
+    goals: goalRepository,
+    investments: () => reports.investments(),
+    month: () => toDateOnlyString(clock(), 'America/Sao_Paulo').slice(0, 7),
+    now: clock,
+  });
   const assistant = new Assistant({
     parser: { parse },
     transactions: transactionService,
@@ -87,8 +97,9 @@ function setup(options: { sheets?: SpreadsheetLink; backup?: AssistantDeps['back
     pending,
     chatState,
     recurring,
-    reports: new ReportService(transactions, accounts),
+    reports,
     budgets: budgetService,
+    goals,
     insights: new InsightsService({
       transactions,
       accounts,
@@ -121,6 +132,7 @@ function setup(options: { sheets?: SpreadsheetLink; backup?: AssistantDeps['back
 
   return {
     assistant,
+    goalRepository,
     reminderRepository,
     jobState,
     parse,
@@ -1341,6 +1353,154 @@ describe('Assistant', () => {
         '⚠️ A última tentativa falhou (24/09/2026 12:00): Drive: HTTP 503',
       );
       expect(reply.actions?.flat()[0]?.id).toBe('bk:now');
+    });
+  });
+
+  describe('metas de economia', () => {
+    const aporte = (description: string, amountCents: number) =>
+      result({
+        transactions: [
+          draft({
+            type: 'INVESTMENT',
+            category: 'INVESTIMENTO',
+            description,
+            amountCents,
+            paymentMethod: null,
+          }),
+        ],
+      });
+
+    it('cria a meta passo a passo, sem passar pela IA, e mostra quanto guardar por mês', async () => {
+      const { assistant, parse, button, say } = setup();
+
+      await assistant.handleAction(button(await assistant.handleGoals(), 'Nova meta'));
+      expect((await say('Viagem')).text).toContain('Quanto você quer juntar para Viagem?');
+      expect((await say('5000')).text).toContain('Até quando?');
+      const created = await say('dezembro');
+
+      expect(parse).not.toHaveBeenCalled();
+      expect(created.text).toMatch(/^✅ Meta criada: Viagem, R\$\s5\.000,00 até dez\/2026\./);
+      expect(created.text).toContain('"guardei 300 pra viagem"');
+      // Setembro → dezembro: outubro, novembro e dezembro.
+      expect(created.text).toMatch(
+        /Faltam R\$\s5\.000,00 · guarde R\$\s1\.666,67\/mês até dez\/2026/,
+      );
+    });
+
+    it('aporte com o nome da meta soma no progresso e comemora uma vez ao bater', async () => {
+      const { assistant, parse, accounts, goalRepository, say } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 500000 });
+      await goalRepository.create({
+        name: 'Viagem',
+        destination: 'Viagem',
+        targetCents: 100000,
+        deadline: null,
+      });
+
+      parse.mockResolvedValue(aporte('Viagem', 60000));
+      const first = await say('guardei 600 pra viagem');
+      expect(parse).toHaveBeenCalledWith(
+        expect.objectContaining({ investmentDestinations: ['Viagem'] }),
+      );
+      expect(first.text).toMatch(/🎯 Meta Viagem: R\$\s600,00 de R\$\s1\.000,00 \(60%\)/);
+
+      parse.mockResolvedValue(aporte('Viagem', 50000));
+      const reached = await say('guardei 500 pra viagem');
+      expect(reached.text).toMatch(
+        /🎉 Você bateu a meta Viagem: R\$\s1\.100,00 de R\$\s1\.000,00!/,
+      );
+      expect(goalRepository.rows[0]?.achievedAt).not.toBeNull();
+
+      parse.mockResolvedValue(aporte('Viagem', 1000));
+      const after = await say('guardei 10 pra viagem');
+      expect(after.text).not.toContain('bateu');
+      expect((await assistant.handleGoals()).text).toContain('🎉 Meta alcançada!');
+    });
+
+    it('com investimentos existentes, pergunta de onde vem o dinheiro da meta', async () => {
+      const { assistant, parse, accounts, goalRepository, button, say } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 500000 });
+      parse.mockResolvedValue(aporte('Caixinha', 120000));
+      await say('coloquei 1200 na caixinha');
+
+      await assistant.handleAction(button(await assistant.handleGoals(), 'Nova meta'));
+      await say('Reserva');
+      const deadline = await say('3000');
+      const question = await assistant.handleAction(button(deadline, 'Sem prazo'));
+
+      expect(question.text).toContain('De onde vem o dinheiro de Reserva?');
+      expect(question.actions?.flat().map((a) => a.label)).toEqual([
+        '📈 Caixinha',
+        '🆕 Aportes para "Reserva"',
+        '❌ Cancelar',
+      ]);
+
+      const created = await assistant.handleAction(button(question, 'Caixinha'));
+      expect(goalRepository.rows[0]).toMatchObject({
+        name: 'Reserva',
+        destination: 'Caixinha',
+        deadline: null,
+      });
+      expect(created.text).toContain('Ela acompanha o saldo de Caixinha');
+      expect(created.text).toMatch(/Reserva: R\$\s1\.200,00 de R\$\s3\.000,00 \(40%\)/);
+      expect(created.text).toMatch(/Faltam R\$\s1\.800,00 · sem prazo/);
+    });
+
+    it('remove a meta pelo menu (os aportes continuam)', async () => {
+      const { assistant, goalRepository, button } = setup();
+      await goalRepository.create({
+        name: 'Notebook',
+        destination: 'Notebook',
+        targetCents: 400000,
+        deadline: null,
+      });
+
+      const list = await assistant.handleAction(button(await assistant.handleGoals(), 'Remover'));
+      const removed = await assistant.handleAction(button(list, 'Notebook'));
+
+      expect(removed.text).toMatch(/^🗑️ Meta removida\./);
+      expect(goalRepository.rows).toHaveLength(0);
+    });
+  });
+
+  describe('/semana e /retrospectiva', () => {
+    it('/semana: a semana até hoje, com onde foi o dinheiro', async () => {
+      const { assistant, parse, say } = setup();
+      parse.mockResolvedValue(
+        result({
+          transactions: [
+            draft({ amountCents: 8000, occurredAt: '2026-09-22' }),
+            draft({
+              description: 'Uber',
+              category: 'TRANSPORTE',
+              amountCents: 2000,
+              occurredAt: '2026-09-23',
+            }),
+          ],
+        }),
+      );
+      await say('almoço 80 terça e uber 20 ontem');
+
+      const reply = await assistant.handleWeek();
+
+      // 24/09/2026 é quinta: semana de segunda (21/09) até hoje.
+      expect(reply.text).toMatch(/^📅 Sua semana até agora · 21\/09 a 24\/09/);
+      expect(reply.text).toMatch(/💸 Gastou R\$\s100,00/);
+      expect(reply.text).toMatch(/• 🍔 Alimentação: R\$\s80,00/);
+      expect(reply.text).toContain('Maior gasto: Almoço');
+    });
+
+    it('/retrospectiva: o ano até agora, desde o primeiro mês com lançamentos', async () => {
+      const { assistant, parse, say } = setup();
+      parse.mockResolvedValue(result({ transactions: [draft({ amountCents: 5000 })] }));
+      await say('almoço 50');
+
+      const reply = await assistant.handleRetrospective();
+
+      expect(reply.text).toMatch(/^🗓️ Seu 2026 até agora \(desde setembro\)/);
+      expect(reply.text).toContain('📝 1 lançamento\n');
+      expect(reply.text).toMatch(/💸 Gastou R\$\s50,00/);
+      expect(reply.actions).toBeUndefined();
     });
   });
 });

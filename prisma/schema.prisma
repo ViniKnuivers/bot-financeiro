@@ -229,6 +229,24 @@ model JobState {
   @@map("job_state")
 }
 
+/// Meta de economia ("Viagem": R$ 5.000 até dezembro). O progresso é o saldo dos aportes
+/// para o destino da meta (aportes − resgates), calculado na hora, nunca guardado.
+model Goal {
+  // Inteiro curto: vai no callback_data dos botões.
+  id          Int       @id @default(autoincrement())
+  name        String
+  // Destino de aporte que alimenta a meta (comparado sem acento nem maiúsculas).
+  destination String
+  targetCents Int
+  // Prazo opcional: o mês ("YYYY-MM") até quando juntar.
+  deadline    String?
+  // Quando o saldo alcançou o alvo (para comemorar uma vez só).
+  achievedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@map("goals")
+}
+
 /// Chaves recebidas em uso (ex.: autorização do Google Drive para o backup). O backup
 /// exporta esta tabela sem os dados, para o arquivo no Drive não carregar a chave.
 model Credential {

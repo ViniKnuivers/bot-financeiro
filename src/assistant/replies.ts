@@ -66,6 +66,9 @@ export const WELCOME = [
   '/orcamento: limites por categoria, com aviso ao passar de 80%',
   '/fixos: gastos fixos que eu lanço sozinho (ou lembro) todo mês',
   '/lembretes: contas e faturas que vencem nos próximos dias',
+  '/metas: metas de economia ("Viagem": R$ 5.000 até dezembro)',
+  '/semana: resumo da semana (chega sozinho todo domingo às 19h)',
+  '/retrospectiva: o seu ano em números',
   '/planilha e /grafico: sua planilha Google com tudo (se configurada)',
   '/relatorio: o relatório do mês em PDF',
   '/backup: cópia diária dos seus dados no Google Drive (se configurado)',
@@ -306,7 +309,7 @@ export function formatRecurringCreated(
   ].join('\n');
 }
 
-function progressBar(percent: number): string {
+export function progressBar(percent: number): string {
   const filled = Math.min(10, Math.round(percent / 10));
   return '▓'.repeat(filled) + '░'.repeat(10 - filled);
 }

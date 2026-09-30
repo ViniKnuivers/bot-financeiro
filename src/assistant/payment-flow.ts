@@ -7,6 +7,8 @@ import { hasBalance, type AccountService } from '../modules/accounts/account.ser
 import { crossedThreshold, type BudgetService } from '../modules/budgets/budget.service.js';
 import type { RecurringService } from '../modules/recurring/recurring.service.js';
 import { canonicalDestination, monthlyShares } from '../modules/reports/monthly-report.js';
+import type { GoalService } from '../modules/goals/goal.service.js';
+import { formatGoalAfterContribution } from './goal-replies.js';
 import type { ReportService } from '../modules/reports/report.service.js';
 import type { Transaction } from '../modules/transactions/transaction.repository.js';
 import {
@@ -60,6 +62,8 @@ export interface PaymentFlowDeps {
   logger: Logger;
   /** Hoje ("YYYY-MM-DD") no fuso do usuário, para saber qual fatura está aberta. */
   today: () => string;
+  /** Metas de economia: progresso depois de um aporte (opcional nos testes antigos). */
+  goals?: Pick<GoalService, 'destinations' | 'afterContribution'>;
 }
 
 export interface StartInput {
@@ -203,6 +207,7 @@ export class PaymentFlow {
     if (balances.length > 0) parts.push(formatBalances(balances));
     parts.push(...(await this.creditLines(batch.transactions, accountsById)));
     parts.push(...(await this.investmentLines(batch.transactions)));
+    parts.push(...(await this.goalLines(batch.transactions)));
     parts.push(...(await this.budgetLines(batch.transactions)));
 
     const missingAccount = batch.transactions.some(
@@ -238,7 +243,10 @@ export class PaymentFlow {
   /** Aportes e resgates usam o nome de um destino já existente, quando for o mesmo. */
   private async withCanonicalDestinations(drafts: ResolvedDraft[]): Promise<ResolvedDraft[]> {
     if (!drafts.some((d) => d.type === 'INVESTMENT' || d.type === 'REDEMPTION')) return drafts;
-    const known = (await this.deps.reports.investments()).map((p) => p.destination);
+    const known = [
+      ...(await this.deps.reports.investments()).map((p) => p.destination),
+      ...((await this.deps.goals?.destinations()) ?? []),
+    ];
     return drafts.map((draft) =>
       draft.type === 'INVESTMENT' || draft.type === 'REDEMPTION'
         ? { ...draft, description: canonicalDestination(draft.description, known) }
@@ -272,6 +280,18 @@ export class PaymentFlow {
     return positions
       .filter((p) => destinations.has(normalizeName(p.destination)))
       .map(formatInvestmentPosition);
+  }
+
+  /** Metas alimentadas pelos aportes/resgates deste lote (e a comemoração ao bater). */
+  private async goalLines(saved: Transaction[]): Promise<string[]> {
+    const destinations = saved
+      .filter((t) => t.type === 'INVESTMENT' || t.type === 'REDEMPTION')
+      .map((t) => t.description);
+    if (destinations.length === 0 || !this.deps.goals) return [];
+    const updates = await this.deps.goals.afterContribution(destinations);
+    return updates.map(({ progress, justReached }) =>
+      formatGoalAfterContribution(progress, justReached),
+    );
   }
 
   /**

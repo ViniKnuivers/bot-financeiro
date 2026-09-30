@@ -3,11 +3,13 @@ import type { Category } from '../../generated/prisma/enums.js';
 import { isVoucher, normalizeName } from '../accounts/account-kinds.js';
 import type { Account } from '../accounts/account.repository.js';
 import type { AccountService } from '../accounts/account.service.js';
-import { percentOf, type BudgetService } from '../budgets/budget.service.js';
+import { percentOf, type BudgetService, type BudgetStatus } from '../budgets/budget.service.js';
 import type { RecurringService } from '../recurring/recurring.service.js';
 import { summarizeMonths } from '../reports/monthly-report.js';
 import type { TransactionRepository } from '../transactions/transaction.repository.js';
 import { forecastMonth, type Forecast } from './forecast.js';
+import { summarizeWeek, weeklyTips, type WeeklySummary, type WeeklyTip } from './weekly.js';
+import { summarizeYear, type YearSummary } from './yearly.js';
 import { answerQuery, type ComputableQuery, type QueryAnswer } from './query.js';
 
 export interface CanAffordAnswer {
@@ -22,6 +24,13 @@ export interface CanAffordAnswer {
 }
 
 export type InsightAnswer = QueryAnswer | CanAffordAnswer;
+
+export interface WeekInsights {
+  summary: WeeklySummary;
+  tips: WeeklyTip[];
+  /** Orçamentos do mês com 80% ou mais já usados. */
+  tightBudgets: BudgetStatus[];
+}
 
 export interface InsightsDeps {
   transactions: Pick<TransactionRepository, 'listForReports'>;
@@ -62,6 +71,55 @@ export class InsightsService {
       recurring,
       voucherAccountIds: voucherIds(accounts),
     });
+  }
+
+  /**
+   * Resumo da semana que termina em `end` (domingo, ou hoje numa semana em curso), as
+   * observações calculadas e os orçamentos do mês que já passaram de 80%.
+   */
+  async week(end: string): Promise<WeekInsights> {
+    const [transactions, accounts, budgets] = await Promise.all([
+      this.deps.transactions.listForReports(),
+      this.deps.accounts.listAll(),
+      this.deps.budgets.list(),
+    ]);
+    const context = { voucherAccountIds: voucherIds(accounts) };
+    const summary = summarizeWeek(transactions, context, end);
+    const [month] = summarizeMonths(transactions, context, [end.slice(0, 7)]);
+    const spent = new Map(month?.byCategory.map((c) => [c.category, c.cents]));
+    const tightBudgets = budgets
+      .map((budget) => ({
+        ...budget,
+        spentCents: spent.get(budget.category) ?? 0,
+        percent: percentOf(spent.get(budget.category) ?? 0, budget.limitCents),
+      }))
+      .filter((status) => status.percent >= BUDGET_WARNING_PERCENT)
+      .sort((a, b) => b.percent - a.percent);
+    return { summary, tips: weeklyTips(summary), tightBudgets };
+  }
+
+  /** O ano em números (o corrente, até hoje). */
+  async year(year: string): Promise<YearSummary> {
+    const [transactions, accounts] = await Promise.all([
+      this.deps.transactions.listForReports(),
+      this.deps.accounts.listAll(),
+    ]);
+    return summarizeYear(
+      transactions,
+      { voucherAccountIds: voucherIds(accounts) },
+      year,
+      this.deps.today(),
+    );
+  }
+
+  /** Anos com algum lançamento, do mais recente para o mais antigo. */
+  async yearsWithData(): Promise<string[]> {
+    const years = new Set(
+      (await this.deps.transactions.listForReports()).map((tx) =>
+        tx.occurredAt.toISOString().slice(0, 4),
+      ),
+    );
+    return [...years].sort().reverse();
   }
 
   private async canAfford(query: Query): Promise<CanAffordAnswer> {

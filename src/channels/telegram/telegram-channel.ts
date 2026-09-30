@@ -71,6 +71,15 @@ export class TelegramChannel implements MessageChannel {
     this.bot.command('relatorio', async (ctx) => {
       await sendReply(ctx, await keepAction(ctx, 'upload_document', () => handler.handleReport()));
     });
+    this.bot.command('metas', async (ctx) => {
+      await sendReply(ctx, await handler.handleGoals());
+    });
+    this.bot.command('semana', async (ctx) => {
+      await sendReply(ctx, await keepAction(ctx, 'typing', () => handler.handleWeek()));
+    });
+    this.bot.command('retrospectiva', async (ctx) => {
+      await sendReply(ctx, await keepAction(ctx, 'typing', () => handler.handleRetrospective()));
+    });
     this.bot.command('backup', async (ctx) => {
       await sendReply(ctx, await handler.handleBackup());
     });
@@ -169,6 +178,9 @@ export class TelegramChannel implements MessageChannel {
       { command: 'planilha', description: 'Link da sua planilha' },
       { command: 'grafico', description: 'Gráficos na planilha' },
       { command: 'fixos', description: 'Gastos fixos lançados todo mês' },
+      { command: 'metas', description: 'Metas de economia' },
+      { command: 'semana', description: 'Resumo da semana, com observações' },
+      { command: 'retrospectiva', description: 'O seu ano em números' },
       { command: 'lembretes', description: 'Contas e faturas que vencem logo' },
       { command: 'relatorio', description: 'Relatório do mês em PDF' },
       { command: 'backup', description: 'Backup diário no Google Drive' },

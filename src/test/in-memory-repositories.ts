@@ -6,6 +6,7 @@ import type {
 } from '../modules/reminders/reminder.repository.js';
 import type { JobStateRepository } from '../jobs/job-state.repository.js';
 import type { CredentialRepository } from '../modules/backup/credential.repository.js';
+import type { Goal, GoalRepository, NewGoal } from '../modules/goals/goal.repository.js';
 import type {
   Account,
   AccountPatch,
@@ -258,6 +259,34 @@ export function inMemoryJobState(): JobStateRepository & { values: Map<string, s
       return Promise.resolve();
     },
   };
+}
+
+export class InMemoryGoalRepository implements GoalRepository {
+  readonly rows: Goal[] = [];
+  private sequence = 0;
+
+  list(): Promise<Goal[]> {
+    return Promise.resolve(this.rows.map((row) => ({ ...row })));
+  }
+
+  create(goal: NewGoal): Promise<Goal> {
+    const row: Goal = { ...goal, id: ++this.sequence, achievedAt: null, createdAt: new Date() };
+    this.rows.push(row);
+    return Promise.resolve({ ...row });
+  }
+
+  delete(id: number): Promise<boolean> {
+    const index = this.rows.findIndex((row) => row.id === id);
+    if (index < 0) return Promise.resolve(false);
+    this.rows.splice(index, 1);
+    return Promise.resolve(true);
+  }
+
+  setAchievedAt(id: number, at: Date | null): Promise<void> {
+    const row = this.rows.find((r) => r.id === id);
+    if (row) row.achievedAt = at;
+    return Promise.resolve();
+  }
 }
 
 export function inMemoryCredentials(): CredentialRepository & { values: Map<string, string> } {
