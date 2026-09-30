@@ -97,10 +97,29 @@ describe('parseWebhook', () => {
     expect(ids).toEqual(['pm:1', 'pm:2', 'wa:ver']);
   });
 
-  it('foto e figurinha: não suportado; avisos de status e lixo: nada', () => {
-    expect(parseWebhook(envelope({ type: 'image', image: { id: 'm' } }))[0]).toMatchObject({
+  it('foto, com ou sem legenda', () => {
+    const [withCaption] = parseWebhook(
+      envelope({
+        type: 'image',
+        image: { id: 'm1', mime_type: 'image/jpeg', caption: 'no débito', sha256: 'x' },
+      }),
+    );
+    const [plain] = parseWebhook(envelope({ type: 'image', image: { id: 'm2' } }));
+
+    expect(withCaption).toMatchObject({
+      kind: 'image',
+      mediaId: 'm1',
+      mimeType: 'image/jpeg',
+      caption: 'no débito',
+    });
+    expect(plain).toMatchObject({ kind: 'image', mediaId: 'm2', mimeType: 'image/jpeg' });
+    expect(plain).not.toHaveProperty('caption');
+  });
+
+  it('figurinha: não suportado; avisos de status e lixo: nada', () => {
+    expect(parseWebhook(envelope({ type: 'sticker', sticker: { id: 'm' } }))[0]).toMatchObject({
       kind: 'unsupported',
-      type: 'image',
+      type: 'sticker',
     });
     const status = envelope({});
     status.entry[0]!.changes[0]!.value = { statuses: [{ id: 'wamid.x', status: 'read' }] } as never;

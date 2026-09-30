@@ -83,7 +83,10 @@ export const parseResultSchema = z.object({
   // default(null): respostas antigas (e testes) sem o campo continuam válidas.
   query: querySchema.nullable().default(null),
   reminder: reminderSchema.nullable().default(null),
-  transcript: z.string().nullable().describe('Transcrição literal do áudio; null para texto.'),
+  transcript: z
+    .string()
+    .nullable()
+    .describe('Transcrição literal do áudio, ou resumo do que foi lido na foto; null para texto.'),
   reply: z.string().min(1).describe('Mensagem curta para o usuário, em português.'),
 });
 

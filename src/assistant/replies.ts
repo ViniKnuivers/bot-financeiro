@@ -173,6 +173,11 @@ export function formatHeard(transcript: string): string {
   return `🎙️ "${transcript}"\n\n`;
 }
 
+/** O que a IA leu na foto, antes do resumo do registro. */
+export function formatSeen(summary: string): string {
+  return `📸 ${summary}\n\n`;
+}
+
 export function formatUndone(count: number): string {
   if (count === 0) return 'Esse registro já tinha sido desfeito.';
   return count === 1

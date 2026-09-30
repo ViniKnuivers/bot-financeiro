@@ -15,6 +15,7 @@ export type IncomingWhatsApp = {
 } & (
   | { kind: 'text'; text: string }
   | { kind: 'audio'; mediaId: string; mimeType: string }
+  | { kind: 'image'; mediaId: string; mimeType: string; caption?: string }
   /** Toque num botão, numa lista ou no botão de resposta rápida de um modelo. */
   | { kind: 'action'; actionId: string }
   | { kind: 'unsupported'; type: string }
@@ -44,6 +45,13 @@ const messageSchema = z.looseObject({
   type: z.string(),
   text: z.looseObject({ body: z.string() }).optional(),
   audio: z.looseObject({ id: z.string(), mime_type: z.string().optional() }).optional(),
+  image: z
+    .looseObject({
+      id: z.string(),
+      mime_type: z.string().optional(),
+      caption: z.string().optional(),
+    })
+    .optional(),
   interactive: z
     .looseObject({
       type: z.string(),
@@ -93,6 +101,10 @@ export function parseWebhook(body: unknown): IncomingWhatsApp[] {
       return [
         { ...base, kind: 'audio', mediaId: m.audio.id, mimeType: m.audio.mime_type ?? 'audio/ogg' },
       ];
+    }
+    if (m.type === 'image' && m.image) {
+      const { id, mime_type: mimeType = 'image/jpeg', caption } = m.image;
+      return [{ ...base, kind: 'image', mediaId: id, mimeType, ...(caption ? { caption } : {}) }];
     }
     const actionId =
       m.interactive?.button_reply?.id ?? m.interactive?.list_reply?.id ?? m.button?.payload;

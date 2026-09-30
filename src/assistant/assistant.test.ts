@@ -575,6 +575,55 @@ describe('Assistant', () => {
     });
   });
 
+  describe('foto de comprovante', () => {
+    it('registra com origem PHOTO, mostra o que leu e guarda a legenda', async () => {
+      const { assistant, parse, transactions } = setup();
+      parse.mockResolvedValue(
+        result({
+          transactions: [draft({ description: 'Padaria Pão Quente', amountCents: 2350 })],
+          transcript: 'Padaria Pão Quente · R$ 23,50 · 24/09 · Pix',
+        }),
+      );
+
+      const reply = await assistant.handleImage({
+        image: Buffer.from('jpg'),
+        mimeType: 'image/jpeg',
+        caption: 'café da manhã',
+        receivedAt: RECEIVED_AT,
+      });
+
+      expect(parse).toHaveBeenCalledWith(
+        expect.objectContaining({ image: Buffer.from('jpg'), text: 'café da manhã' }),
+      );
+      expect(transactions.rows[0]).toMatchObject({
+        source: 'PHOTO',
+        rawInput: 'Padaria Pão Quente · R$ 23,50 · 24/09 · Pix (legenda: café da manhã)',
+      });
+      expect(reply.text).toMatch(/^📸 Padaria Pão Quente · R\$ 23,50 · 24\/09 · Pix\n\n/);
+      expect(reply.actions?.flat().some((a) => a.label.includes('Desfazer'))).toBe(true);
+    });
+
+    it('foto que não é comprovante: só repassa a resposta, sem registrar', async () => {
+      const { assistant, parse, transactions } = setup();
+      parse.mockResolvedValue(
+        result({
+          intent: 'other',
+          transactions: [],
+          reply: 'Não consegui ler um comprovante nessa foto.',
+        }),
+      );
+
+      const reply = await assistant.handleImage({
+        image: Buffer.from('jpg'),
+        mimeType: 'image/jpeg',
+        receivedAt: RECEIVED_AT,
+      });
+
+      expect(transactions.rows).toHaveLength(0);
+      expect(reply.text).toContain('Não consegui ler um comprovante');
+    });
+  });
+
   describe('botão Desfazer', () => {
     it('apaga o lote da mensagem', async () => {
       const { assistant, parse, transactions, say } = setup();

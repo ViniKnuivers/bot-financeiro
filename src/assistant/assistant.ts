@@ -8,6 +8,7 @@ import {
 import type {
   ActionReply,
   IncomingAudioMessage,
+  IncomingImageMessage,
   IncomingTextMessage,
   MessageHandler,
   OutgoingMessage,
@@ -40,6 +41,7 @@ import { RemindersFlow } from './reminders-flow.js';
 import {
   formatMonth,
   formatHeard,
+  formatSeen,
   formatLatest,
   formatMonthSummary,
   formatParserError,
@@ -174,6 +176,25 @@ export class Assistant implements MessageHandler {
     });
   }
 
+  async handleImage(message: IncomingImageMessage): Promise<OutgoingMessage> {
+    return this.afterChange(
+      await this.process({
+        parseInput: {
+          image: message.image,
+          mimeType: message.mimeType,
+          ...(message.caption ? { text: message.caption } : {}),
+          now: message.receivedAt,
+        },
+        source: 'PHOTO',
+        // Fica registrado o que a IA leu (e a legenda), para conferir depois.
+        rawInputFor: (result) => {
+          const seen = result.transcript ?? '[foto]';
+          return message.caption ? `${seen} (legenda: ${message.caption})` : seen;
+        },
+      }),
+    );
+  }
+
   /**
    * Chama a IA com o contexto do usuário (cartões e destinos de investimento já usados).
    * Erros da IA viram uma mensagem pronta para responder.
@@ -217,8 +238,14 @@ export class Assistant implements MessageHandler {
     const result = await this.interpret(parseInput);
     if (!('intent' in result)) return result;
 
-    // No áudio, mostrar o que a IA ouviu ajuda a entender um registro errado.
-    const heard = source === 'AUDIO' && result.transcript ? formatHeard(result.transcript) : '';
+    // No áudio e na foto, mostrar o que a IA ouviu/leu ajuda a entender um registro errado.
+    const heard = !result.transcript
+      ? ''
+      : source === 'AUDIO'
+        ? formatHeard(result.transcript)
+        : source === 'PHOTO'
+          ? formatSeen(result.transcript)
+          : '';
 
     // Pergunta: a IA só entendeu o que foi perguntado; a conta é do bot.
     if (result.intent === 'query' && result.query) {

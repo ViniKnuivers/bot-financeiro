@@ -68,9 +68,10 @@ export interface SheetContent {
 export type Cell = string | number | null;
 
 const SOURCE_LABELS: Record<InputSource, string> = {
-  // Telegram ou WhatsApp: os dois chegam como mensagem de texto ou de voz.
+  // Telegram ou WhatsApp: os dois chegam como mensagem de texto, voz ou foto.
   TEXT: 'Chat (texto)',
   AUDIO: 'Chat (áudio)',
+  PHOTO: 'Chat (foto)',
   RECURRING: 'Gasto fixo',
   SHEET: 'Planilha',
 };

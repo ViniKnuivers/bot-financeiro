@@ -107,6 +107,25 @@ describe('GeminiTransactionParser', () => {
       ]);
     });
 
+    it('envia a foto como inlineData, com a legenda depois', async () => {
+      const { parser, generateContent, call } = setup();
+      generateContent.mockResolvedValue(registerResponse());
+      const image = Buffer.from('fake-jpg');
+
+      await parser.parse({ image, mimeType: 'image/jpeg', text: 'no débito', now: NOW });
+
+      expect(call().contents).toEqual([
+        {
+          role: 'user',
+          parts: [
+            { text: 'Foto enviada pelo usuário:' },
+            { inlineData: { data: image.toString('base64'), mimeType: 'image/jpeg' } },
+            { text: 'Legenda da foto: no débito' },
+          ],
+        },
+      ]);
+    });
+
     it('recusa entrada sem texto e sem áudio, sem chamar a IA', async () => {
       const { parser, generateContent } = setup();
 

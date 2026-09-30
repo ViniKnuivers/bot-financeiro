@@ -6,6 +6,9 @@ export type { ParseResult } from './parse-result.schema.js';
 export interface ParseInput {
   text?: string;
   audio?: Buffer;
+  /** Foto de comprovante; `text`, se houver, é a legenda. */
+  image?: Buffer;
+  /** Tipo do áudio ou da imagem (ex.: "audio/ogg", "image/jpeg"). */
   mimeType?: string;
   /** Momento de referência para resolver datas relativas ("ontem", "sexta"). */
   now: Date;

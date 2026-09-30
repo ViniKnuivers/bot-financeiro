@@ -14,6 +14,9 @@ import { onlyAllowedUser } from './only-allowed-user.js';
  * e dificilmente são um lançamento. 2 minutos cobre com folga "almoço 32 e uber 18".
  */
 const MAX_VOICE_SECONDS = 120;
+/** Fotos enviadas como arquivo podem ser enormes; a IA não precisa de mais que isso. */
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
 export interface TelegramChannelOptions {
   token: string;
@@ -122,9 +125,52 @@ export class TelegramChannel implements MessageChannel {
       await sendReply(ctx, reply);
     });
 
-    // Qualquer outro tipo de mensagem (foto, figurinha, arquivo...).
+    // Foto de comprovante. O Telegram manda vários tamanhos; o último é o maior.
+    this.bot.on('message:photo', async (ctx) => {
+      const { photo, caption, date } = ctx.message;
+      const largest = photo.at(-1);
+      if (!largest) return;
+      await ctx.replyWithChatAction('typing');
+      const file = await ctx.api.getFile(largest.file_id);
+      if (!file.file_path) throw new Error('Telegram não retornou file_path para a foto');
+      const reply = await handler.handleImage({
+        image: await downloadTelegramFile(token, file.file_path),
+        mimeType: 'image/jpeg',
+        ...(caption ? { caption } : {}),
+        receivedAt: new Date(date * 1000),
+      });
+      await sendReply(ctx, reply);
+    });
+
+    // Foto enviada "como arquivo" (sem compressão): mesmo caminho, se for imagem.
+    this.bot.on('message:document', async (ctx, next) => {
+      const { document, caption, date } = ctx.message;
+      const mimeType = document.mime_type ?? '';
+      if (!IMAGE_TYPES.has(mimeType)) {
+        await next();
+        return;
+      }
+      if ((document.file_size ?? 0) > MAX_IMAGE_BYTES) {
+        await ctx.reply('Essa imagem é grande demais (máximo 10 MB). Pode mandar como foto?');
+        return;
+      }
+      await ctx.replyWithChatAction('typing');
+      const file = await ctx.api.getFile(document.file_id);
+      if (!file.file_path) throw new Error('Telegram não retornou file_path para a imagem');
+      const reply = await handler.handleImage({
+        image: await downloadTelegramFile(token, file.file_path),
+        mimeType,
+        ...(caption ? { caption } : {}),
+        receivedAt: new Date(date * 1000),
+      });
+      await sendReply(ctx, reply);
+    });
+
+    // Qualquer outro tipo de mensagem (figurinha, vídeo, outros arquivos...).
     this.bot.on('message', async (ctx) => {
-      await ctx.reply('Por enquanto eu entendo só mensagens de texto e de voz.');
+      await ctx.reply(
+        'Por enquanto eu entendo mensagens de texto, de voz e fotos de comprovantes.',
+      );
     });
 
     // Toque em um botão inline (ex.: "Desfazer").
