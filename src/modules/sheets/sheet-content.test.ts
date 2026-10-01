@@ -114,10 +114,36 @@ describe('buildSheetContent', () => {
 
     expect(table).toHaveLength(25);
     expect(table.at(-1)?.[6]).toBe(1500);
-    // Tabela de apoio dos gráficos (aba Dados): cabeçalho + 12 meses, acumulado no fim.
+    // Tabela de apoio dos gráficos (aba Dados): cabeçalho + os meses desde o primeiro com
+    // movimento (aqui, só setembro), acumulado no fim.
     const chart = range(content, "'Dados'!K1:P13");
-    expect(chart).toHaveLength(13);
+    expect(chart).toHaveLength(2);
     expect(chart.at(-1)?.[5]).toBe(1500);
+  });
+
+  it('gráficos de 12 meses começam no primeiro mês com movimento e crescem até 12', () => {
+    const months = (content: ReturnType<typeof buildSheetContent>) =>
+      range(content, "'Dados'!K1:P13")
+        .slice(1)
+        .map((row) => row[0]);
+
+    // Só VR/VA em julho (fora dos gráficos): começa em agosto.
+    const started = buildSheetContent(
+      data([
+        tx({ occurredAt: new Date('2026-07-10T00:00:00.000Z'), paymentMethod: 'VR' }),
+        tx({ occurredAt: new Date('2026-08-10T00:00:00.000Z') }),
+        tx({}),
+      ]),
+    );
+    expect(months(started)).toEqual(['ago/2026', 'set/2026']);
+
+    // Movimento há mais de 12 meses: os últimos 12.
+    const old = buildSheetContent(data([tx({ occurredAt: new Date('2025-01-10T00:00:00.000Z') })]));
+    expect(months(old)).toHaveLength(12);
+    expect(months(old)[0]).toBe('out/2025');
+
+    // Nada lançado: só o mês atual.
+    expect(months(buildSheetContent(data([])))).toEqual(['set/2026']);
   });
 
   it('faturas por cartão: 3 meses atrás a 6 à frente', () => {

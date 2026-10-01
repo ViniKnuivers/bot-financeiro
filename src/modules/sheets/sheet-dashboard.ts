@@ -7,6 +7,7 @@ import {
   TYPE_LABELS,
 } from '../transactions/transaction.labels.js';
 import type { Transaction } from '../transactions/transaction.repository.js';
+import type { MonthSummary } from '../reports/monthly-report.js';
 import { a1, CHART_MONTHS, INVOICE_ROWS, MAX_CARD_ROWS, SUMMARY_MONTHS } from './sheet-layout.js';
 import type { Cell, SheetData } from './sheet-content.js';
 import { toLocaleFormula, toLocaleNumber } from './sheet-formula.js';
@@ -136,13 +137,27 @@ function signedReais(t: Transaction): number {
 
 const dateCell = (t: Transaction): number => toSheetSerial(t.occurredAt.toISOString().slice(0, 10));
 
+/**
+ * De qual mês os gráficos de 12 meses começam: do primeiro com algo que eles mostram
+ * (receita, despesa, aporte ou resgate; VR/VA fica fora, como nos gráficos), para não abrir
+ * com meses vazios antes de você começar a usar o bot. A cada mês novo, ganha uma coluna,
+ * até 12. Sem movimento nenhum, só o mês atual.
+ */
+export function chartStart(months: readonly MonthSummary[]): number {
+  const window = Math.max(0, months.length - CHART_MONTHS);
+  const first = months.findIndex(
+    (m) => m.incomeCents > 0 || m.expenseCents > 0 || m.investedCents > 0 || m.redeemedCents > 0,
+  );
+  return first === -1 ? Math.max(0, months.length - 1) : Math.max(window, first);
+}
+
 /** Conteúdo da aba Dados, pronto para gravar (valores crus). */
 export function dataTabContent(input: SheetData): RangeValues[] {
   const table = monthTable(input);
   const labels = input.months.map((m) => formatMonthShort(m.month));
 
   const chartRows = table
-    .slice(-CHART_MONTHS)
+    .slice(chartStart(input.months))
     .map((row): Cell[] => [0, 1, 2, 3, 6, 8].map((i) => row[i] ?? null));
 
   const categoryRows: Cell[][] = [];
