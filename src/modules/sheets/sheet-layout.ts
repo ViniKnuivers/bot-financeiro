@@ -9,6 +9,7 @@ export const TABS = {
   summary: 'Resumo',
   categories: 'Categorias',
   cards: 'Cartões e vales',
+  recurring: 'Gastos fixos',
   investments: 'Investimentos',
   data: 'Dados',
   report: 'Relatório',
@@ -23,6 +24,7 @@ export const TAB_ORDER: readonly TabKey[] = [
   'summary',
   'categories',
   'cards',
+  'recurring',
   'investments',
   'data',
   'report',
@@ -34,6 +36,7 @@ export const READ_ONLY_TABS: readonly TabKey[] = [
   'summary',
   'categories',
   'cards',
+  'recurring',
   'investments',
   'data',
   'report',
@@ -71,6 +74,20 @@ export const SUMMARY_TABLE_HEADERS = [
 ] as const;
 /** Saldos das contas no Resumo: A9:B18. */
 export const MAX_BALANCE_ROWS = 10;
+
+/** Gastos fixos: cabeçalho + até 50 (A1:I51). */
+export const MAX_RECURRING_ROWS = 50;
+export const RECURRING_HEADERS = [
+  'Gasto fixo',
+  'Categoria',
+  'Valor',
+  'Dia',
+  'Forma',
+  'Cartão/Conta',
+  'Como funciona',
+  'Situação',
+  'Este mês',
+] as const;
 
 /** Cartões: faturas de 3 meses atrás até 6 à frente (A3:?12). */
 export const INVOICE_MONTHS_BACK = 3;

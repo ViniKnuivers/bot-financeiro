@@ -134,6 +134,7 @@ async function main(): Promise<void> {
       accounts,
       reports,
       budgets,
+      recurring,
       jobState,
       transactionService: transactions,
       snapshots: new PrismaSheetSnapshotRepository(prisma),

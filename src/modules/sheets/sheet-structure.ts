@@ -17,7 +17,9 @@ import {
   LEGACY_TAB_TITLES,
   MAX_CARD_ROWS,
   MAX_INVESTMENT_ROWS,
+  MAX_RECURRING_ROWS,
   READ_ONLY_TABS,
+  RECURRING_HEADERS,
   TAB_ORDER,
   TABS,
   type TabKey,
@@ -122,6 +124,7 @@ const TABLE_TABS: readonly TabKey[] = [
   'summary',
   'categories',
   'cards',
+  'recurring',
   'investments',
   'data',
 ];
@@ -167,6 +170,11 @@ export function formattingRequests(ids: TabIds): SheetRequest[] {
     numberFormat(grid(ids.data, [1, 25], [1, 9]), CURRENCY),
     numberFormat(grid(ids.data, [1, 13], [11, 16]), CURRENCY),
 
+    ...header(grid(ids.recurring, [0, 1], [0, RECURRING_HEADERS.length])),
+    numberFormat(grid(ids.recurring, [1, 1 + MAX_RECURRING_ROWS], [2, 3]), CURRENCY),
+    ...header(grid(ids.recurring, [0, 1], [10, 11])),
+    numberFormat(grid(ids.recurring, [0, 1], [11, 12]), CURRENCY),
+
     ...header(grid(investments, [0, 1], [0, 4])),
     ...header(grid(investments, [0, 1], [5, 6])),
     numberFormat(grid(investments, [1, 1 + MAX_INVESTMENT_ROWS], [1, 4]), CURRENCY),
@@ -180,6 +188,7 @@ const TAB_COLORS: Record<TabKey, string> = {
   summary: THEME.border,
   categories: THEME.border,
   cards: THEME.border,
+  recurring: THEME.border,
   investments: THEME.border,
   data: THEME.border,
   report: THEME.border,

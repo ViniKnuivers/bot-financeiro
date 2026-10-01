@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { OutgoingMessage } from '../../channels/message-channel.js';
 import { AccountService } from '../accounts/account.service.js';
 import { BudgetService } from '../budgets/budget.service.js';
+import { RecurringService } from '../recurring/recurring.service.js';
 import { ReportService } from '../reports/report.service.js';
 import { TransactionService } from '../transactions/transaction.service.js';
 import {
   InMemoryAccountRepository,
   InMemoryBudgetRepository,
   InMemoryInvoicePaymentRepository,
+  InMemoryRecurringRepository,
   InMemorySheetSnapshotRepository,
   InMemoryTrashRepository,
 } from '../../test/in-memory-repositories.js';
@@ -26,6 +28,7 @@ function setup() {
     new InMemoryInvoicePaymentRepository(),
   );
   const budgets = new InMemoryBudgetRepository();
+  const recurringRepository = new InMemoryRecurringRepository();
   const gateway = new InMemorySpreadsheet();
   const snapshots = new InMemorySheetSnapshotRepository();
   const trash = new InMemoryTrashRepository();
@@ -38,6 +41,7 @@ function setup() {
     accounts,
     reports: new ReportService(transactions, accounts),
     budgets: new BudgetService(budgets),
+    recurring: new RecurringService(recurringRepository, new TransactionService(transactions)),
     transactionService: new TransactionService(transactions),
     snapshots,
     trash,
@@ -73,11 +77,21 @@ function setup() {
       rawInput: 'almoço 32',
       source: 'TEXT',
     });
-  return { sync, gateway, notify, accounts, budgets, register, transactions, trash };
+  return {
+    sync,
+    gateway,
+    notify,
+    accounts,
+    budgets,
+    register,
+    transactions,
+    trash,
+    recurringRepository,
+  };
 }
 
 describe('SheetSyncService', () => {
-  it('na primeira vez cria as 8 abas, Painel e Relatório com gráficos, e escreve os dados', async () => {
+  it('na primeira vez cria as 9 abas, Painel e Relatório com gráficos, e escreve os dados', async () => {
     const { sync, gateway, register } = setup();
     await register();
     await register({
@@ -124,7 +138,7 @@ describe('SheetSyncService', () => {
     await sync.syncNow();
 
     expect(gateway.count('addChart')).toBe(charts);
-    expect(gateway.count('addSheet')).toBe(8);
+    expect(gateway.count('addSheet')).toBe(9);
     expect(gateway.count('addBanding')).toBe(1);
   });
 
@@ -239,6 +253,104 @@ describe('SheetSyncService', () => {
     expect(gateway.formulas.get("'Painel'!C5")?.[0]?.[0]).toBe(
       '=INDEX(Dados!$B$2:$B$25;Dados!$BC$2)',
     );
+  });
+});
+
+describe('aba Gastos fixos', () => {
+  it('lista os fixos por dia, com categoria, valor, como funcionam e se já saíram no mês', async () => {
+    const { sync, gateway, accounts, recurringRepository } = setup();
+    const [card] = await accounts.create('CREDIT_CARD', 'Itaú');
+    const fixed = {
+      type: 'EXPENSE' as const,
+      category: 'ASSINATURAS' as const,
+      paymentMethod: 'CREDITO' as const,
+      accountId: card?.id ?? null,
+      lastRunMonth: null,
+    };
+    await recurringRepository.create({
+      ...fixed,
+      description: 'Spotify',
+      amountCents: 2400,
+      dayOfMonth: 10,
+    });
+    await recurringRepository.create({
+      ...fixed,
+      description: 'Academia',
+      category: 'SAUDE',
+      paymentMethod: 'DEBITO',
+      accountId: null,
+      amountCents: 6500,
+      dayOfMonth: 1,
+      lastRunMonth: '2026-09',
+    });
+    const paused = await recurringRepository.create({
+      ...fixed,
+      description: 'Netflix',
+      amountCents: 5500,
+      dayOfMonth: 5,
+    });
+    await recurringRepository.update(paused.id, { active: false, mode: 'REMIND' });
+
+    await sync.syncNow();
+
+    expect(gateway.tabs.map((t) => t.title)).toContain('Gastos fixos');
+    expect(gateway.range("'Gastos fixos'!A1:I51")).toEqual([
+      [
+        'Gasto fixo',
+        'Categoria',
+        'Valor',
+        'Dia',
+        'Forma',
+        'Cartão/Conta',
+        'Como funciona',
+        'Situação',
+        'Este mês',
+      ],
+      [
+        'Academia',
+        '💊 Saúde',
+        65,
+        1,
+        'Débito',
+        '',
+        'Lançado sozinho no dia',
+        'Ativo',
+        '✅ Já lançado',
+      ],
+      [
+        'Netflix',
+        '📺 Assinaturas',
+        55,
+        5,
+        'Crédito',
+        'Itaú (crédito)',
+        'Lembrete (você confirma)',
+        'Pausado',
+        '',
+      ],
+      [
+        'Spotify',
+        '📺 Assinaturas',
+        24,
+        10,
+        'Crédito',
+        'Itaú (crédito)',
+        'Lançado sozinho no dia',
+        'Ativo',
+        '⏳ Ainda não',
+      ],
+    ]);
+    // Só os ativos: academia + Spotify.
+    expect(gateway.range("'Gastos fixos'!K1:L1")).toEqual([['Total por mês (ativos)', 89]]);
+  });
+
+  it('sem fixos, explica como cadastrar', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+
+    expect(gateway.range("'Gastos fixos'!A1:I51")[1]).toEqual([
+      'Nenhum gasto fixo ainda. Cadastre com /fixos no chat.',
+    ]);
   });
 });
 

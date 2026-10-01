@@ -11,6 +11,7 @@ import {
   PAYMENT_METHOD_LABELS,
   TYPE_LABELS,
 } from '../transactions/transaction.labels.js';
+import type { RecurringEntry } from '../recurring/recurring.repository.js';
 import type { Transaction } from '../transactions/transaction.repository.js';
 import { EXPENSE_CATEGORIES } from '../transactions/transaction.schemas.js';
 import { DATA, dataTabContent, monthTable } from './sheet-dashboard.js';
@@ -22,6 +23,8 @@ import {
   MAX_BALANCE_ROWS,
   MAX_CARD_ROWS,
   MAX_INVESTMENT_ROWS,
+  MAX_RECURRING_ROWS,
+  RECURRING_HEADERS,
   SUMMARY_TABLE_HEADERS,
   TRANSACTION_HEADERS,
 } from './sheet-layout.js';
@@ -52,6 +55,8 @@ export interface SheetData {
   /** Cartões de crédito ativos (com ou sem fechamento configurado). */
   cards: readonly SheetCard[];
   investments: readonly InvestmentPosition[];
+  /** Gastos fixos (/fixos), para a aba Gastos fixos. */
+  recurring: readonly RecurringEntry[];
   /** Aportes − resgates anteriores ao primeiro mês da tabela (base do acumulado). */
   netInvestedBefore: number;
   /** Mensagem para a coluna Status de um lançamento (ex.: edição recusada). */
@@ -89,6 +94,7 @@ export function buildSheetContent(input: SheetData): SheetContent {
       a1('categories', 'A1:F20'),
       a1('cards', 'A1:Z40'),
       a1('investments', 'A1:G40'),
+      a1('recurring', `A1:L${String(1 + MAX_RECURRING_ROWS)}`),
       a1('data', DATA.clear),
     ],
     data: [
@@ -96,6 +102,7 @@ export function buildSheetContent(input: SheetData): SheetContent {
       ...summaryTab(input),
       ...categoriesTab(input),
       ...cardsTab(input),
+      ...recurringTab(input),
       ...investmentsTab(input),
       ...dataTabContent(input),
     ],
@@ -250,6 +257,50 @@ function cardsTab(input: SheetData): RangeValues[] {
         ...cardRows,
       ],
     },
+  ];
+}
+
+const RECURRING_MODE_LABELS: Record<RecurringEntry['mode'], string> = {
+  AUTO: 'Lançado sozinho no dia',
+  REMIND: 'Lembrete (você confirma)',
+};
+
+/**
+ * Gastos fixos (/fixos): um por linha, em ordem de dia, com quanto somam por mês. "Este
+ * mês" diz se o lançamento deste mês já aconteceu.
+ */
+function recurringTab(input: SheetData): RangeValues[] {
+  const month = input.today.slice(0, 7);
+  const accounts = new Map(input.accounts.map((a) => [a.id, a]));
+  const entries = [...input.recurring].sort(
+    (a, b) => a.dayOfMonth - b.dayOfMonth || a.description.localeCompare(b.description, 'pt-BR'),
+  );
+  const rows: Cell[][] = entries.slice(0, MAX_RECURRING_ROWS).map((entry) => {
+    const account = entry.accountId === null ? undefined : accounts.get(entry.accountId);
+    return [
+      entry.description,
+      categoryLabelWithIcon(entry.category),
+      reais(entry.type === 'EXPENSE' ? entry.amountCents : -entry.amountCents),
+      entry.dayOfMonth,
+      entry.paymentMethod ? PAYMENT_METHOD_LABELS[entry.paymentMethod] : '',
+      account ? accountLabel(account) : '',
+      RECURRING_MODE_LABELS[entry.mode],
+      entry.active ? 'Ativo' : 'Pausado',
+      !entry.active ? '' : entry.lastRunMonth === month ? '✅ Já lançado' : '⏳ Ainda não',
+    ];
+  });
+  const total = entries
+    .filter((e) => e.active && e.type === 'EXPENSE')
+    .reduce((sum, e) => sum + e.amountCents, 0);
+  return [
+    {
+      range: a1('recurring', `A1:I${String(1 + MAX_RECURRING_ROWS)}`),
+      values: [
+        [...RECURRING_HEADERS],
+        ...(rows.length > 0 ? rows : [['Nenhum gasto fixo ainda. Cadastre com /fixos no chat.']]),
+      ],
+    },
+    { range: a1('recurring', 'K1:L1'), values: [['Total por mês (ativos)', reais(total)]] },
   ];
 }
 

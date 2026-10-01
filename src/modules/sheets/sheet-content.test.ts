@@ -52,6 +52,7 @@ function data(transactions: Transaction[], overrides: Partial<SheetData> = {}): 
     cards: [],
     investments: [],
     netInvestedBefore: 0,
+    recurring: [],
     ...overrides,
   };
 }

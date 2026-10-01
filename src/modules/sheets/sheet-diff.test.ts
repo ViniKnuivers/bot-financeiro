@@ -56,6 +56,7 @@ function sheetRows(transactions: Transaction[]) {
     cards: [],
     investments: [],
     netInvestedBefore: 0,
+    recurring: [],
   });
   const values = content.data.find((r) => r.range === "'Lançamentos'!A1:K")?.values ?? [];
   return values.slice(1).map((row) => [...row]);

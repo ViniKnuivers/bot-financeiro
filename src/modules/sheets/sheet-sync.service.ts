@@ -7,6 +7,7 @@ import { addMonths, invoiceTotalsByMonth } from '../accounts/credit-invoice.js';
 import { formatMonthLong, formatMonthShort, toSheetSerial } from '../../lib/dates.js';
 import type { BudgetService } from '../budgets/budget.service.js';
 import { monthOf } from '../reports/monthly-report.js';
+import type { RecurringService } from '../recurring/recurring.service.js';
 import type { ReportService } from '../reports/report.service.js';
 import type { TransactionRepository } from '../transactions/transaction.repository.js';
 import type { TransactionService } from '../transactions/transaction.service.js';
@@ -67,6 +68,8 @@ export interface SheetSyncDeps {
   accounts: AccountService;
   reports: ReportService;
   budgets: BudgetService;
+  /** Gastos fixos, para a aba Gastos fixos. */
+  recurring: Pick<RecurringService, 'list'>;
   jobState: JobStateRepository;
   notify: (message: OutgoingMessage) => Promise<void>;
   logger: Logger;
@@ -393,17 +396,27 @@ export class SheetSyncService {
   private async collect(now: Date): Promise<SheetData> {
     const { transactions, accounts, reports, budgets } = this.deps;
     const today = this.deps.today();
-    const [months, all, forReports, allAccounts, active, budgetList, balances, investments] =
-      await Promise.all([
-        reports.series(today.slice(0, 7), SUMMARY_MONTHS),
-        transactions.listAll(),
-        transactions.listForReports(),
-        accounts.listAll(),
-        accounts.listActive(),
-        budgets.list(),
-        reports.balances(),
-        reports.investments(),
-      ]);
+    const [
+      months,
+      all,
+      forReports,
+      allAccounts,
+      active,
+      budgetList,
+      balances,
+      investments,
+      recurring,
+    ] = await Promise.all([
+      reports.series(today.slice(0, 7), SUMMARY_MONTHS),
+      transactions.listAll(),
+      transactions.listForReports(),
+      accounts.listAll(),
+      accounts.listActive(),
+      budgets.list(),
+      reports.balances(),
+      reports.investments(),
+      this.deps.recurring.list(),
+    ]);
 
     const cards: SheetCard[] = await Promise.all(
       active
@@ -442,6 +455,7 @@ export class SheetSyncService {
       balances,
       cards,
       investments,
+      recurring,
       netInvestedBefore,
     };
   }

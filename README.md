@@ -327,18 +327,20 @@ docker compose --profile app up -d
 ```
 
 Em alguns segundos a planilha ganha as abas **Painel, Lançamentos, Resumo, Categorias,
-Cartões e vales** e **Investimentos**, todas no tema escuro. Mande `/planilha` no Telegram
+Cartões e vales, Gastos fixos** e **Investimentos**, todas no tema escuro. A aba **Gastos
+fixos** lista cada um com categoria, valor, dia, forma de pagamento, se é lançado sozinho
+ou só lembrado, e se o deste mês já saiu, com o total por mês. Mande `/planilha` no Telegram
 para ver o link e a última sincronização, e `/grafico` para ir direto ao Painel.
 
 **O Painel** é a primeira aba e mostra tudo numa tela:
 
 - **Mês:** a lista no topo escolhe o mês. Tudo se ajusta na hora: os números, a rosca de
   categorias, o orçamento e os maiores gastos. "Mês atual" acompanha a virada do mês sozinho.
-- **Cartões com os números do mês:** receitas, despesas, sobra, investido e o saldo das contas.
+- **Cartões com os números do mês:** receitas, despesas, investido e o saldo das contas.
   Cada um mostra a comparação com o mês anterior: ▲ verde quando melhorou, ▼ vermelho quando
   piorou (em despesas, subir é vermelho).
-- **Gráficos:** gastos por categoria, receitas × despesas dos últimos 12 meses, investido
-  acumulado e faturas dos cartões (com as parcelas futuras).
+- **Gráficos:** gastos por categoria, receitas × despesas e investido acumulado (a partir do
+  mês em que você começou, até os últimos 12) e faturas dos cartões (com as parcelas futuras).
 - **Barras de uso:** orçamento por categoria e limite dos cartões ficam verdes, âmbar a partir
   de 80% e vermelhos acima de 100%.
 - **Listas:** os 5 maiores gastos do mês escolhido e os 8 últimos lançamentos.
@@ -361,7 +363,7 @@ Como funciona:
   você corrigir.
 - **Proteção contra acidentes:** se mais de 5 linhas sumirem de uma vez (ex.: a aba foi
   limpa sem querer), o bot não apaga nada, devolve as linhas e pergunta no Telegram.
-- As outras abas (Painel, Resumo, Categorias, Cartões e vales, Investimentos) são
+- As outras abas (Painel, Resumo, Categorias, Cartões e vales, Gastos fixos, Investimentos) são
   calculadas pelo bot: editar nelas mostra um aviso, e a mudança é sobrescrita. A única
   exceção é a lista de mês do Painel, que é sua. Você pode criar abas próprias à vontade,
   que o bot não mexe nelas.

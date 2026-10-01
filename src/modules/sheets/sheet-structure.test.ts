@@ -6,6 +6,7 @@ const ids: TabIds = {
   summary: 2,
   categories: 3,
   cards: 4,
+  recurring: 9,
   investments: 5,
   dashboard: 6,
   data: 7,
