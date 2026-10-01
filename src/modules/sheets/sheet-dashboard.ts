@@ -8,7 +8,15 @@ import {
 } from '../transactions/transaction.labels.js';
 import type { Transaction } from '../transactions/transaction.repository.js';
 import type { MonthSummary } from '../reports/monthly-report.js';
-import { a1, CHART_MONTHS, INVOICE_ROWS, MAX_CARD_ROWS, SUMMARY_MONTHS } from './sheet-layout.js';
+import { formatCents } from '../../lib/money.js';
+import {
+  a1,
+  CHART_MONTHS,
+  MAX_RECURRING_ROWS,
+  INVOICE_ROWS,
+  MAX_CARD_ROWS,
+  SUMMARY_MONTHS,
+} from './sheet-layout.js';
 import type { Cell, SheetData } from './sheet-content.js';
 import { toLocaleFormula, toLocaleNumber } from './sheet-formula.js';
 import {
@@ -43,6 +51,27 @@ const WARN_RATIO = 0.8;
 // ---------------------------------------------------------------------------------------
 
 const MAX_TOP = 5;
+
+/** Colunas do painel de gastos fixos: onde vão no Painel e de onde vêm na aba. */
+const FIXED_COLUMNS = [
+  { cell: 'B', header: 'Gasto fixo', source: ['A', 'B', 'C', 'D', 'E', 'I'] },
+  { cell: 'H', header: 'Cartão/Conta', source: ['F'] },
+  { cell: 'J', header: 'Como funciona', source: ['G'] },
+] as const;
+const FIXED_HEADERS: Record<string, string> = {
+  C: 'Categoria',
+  D: 'Valor',
+  E: 'Dia',
+  F: 'Forma',
+  G: 'Este mês',
+};
+
+/** Total por mês dos gastos fixos ativos (o título do painel). */
+function fixedMonthlyCents(input: SheetData): number {
+  return input.recurring
+    .filter((entry) => entry.active && entry.type === 'EXPENSE')
+    .reduce((sum, entry) => sum + entry.amountCents, 0);
+}
 const MAX_LATEST = 8;
 const MAX_CATEGORY_ROWS = 11;
 const MAX_BALANCES = 10;
@@ -62,7 +91,7 @@ export const DATA = {
   latest: `AH1:AL${1 + MAX_LATEST}`,
   cards: `AN1:AR${1 + MAX_CARD_ROWS}`,
   balances: `AT1:AU${1 + MAX_BALANCES}`,
-  status: 'AW1:AX3',
+  status: 'AW1:AX4',
   monthList: `AZ1:AZ${1 + SUMMARY_MONTHS}`,
   /** Tudo que o bot reescreve (as fórmulas de apoio, de BB em diante, ficam). */
   clear: 'A1:AZ400',
@@ -297,6 +326,7 @@ export function dataTabContent(input: SheetData): RangeValues[] {
         ['Atualizado em', input.updatedAt],
         ['Saldo em conta', reais(bankCents)],
         ['Previsão', input.forecast ?? ''],
+        ['Gastos fixos', `${formatCents(fixedMonthlyCents(input))} por mês`],
       ],
     },
     {
@@ -375,14 +405,19 @@ export const PANEL = {
   listsTitle: 62,
   listsHeader: 63,
   listsFirst: 64,
-  footer: 73,
+  /** Gastos fixos ativos (da aba Gastos fixos), na largura toda. */
+  fixedTitle: 74,
+  fixedHeader: 75,
+  fixedFirst: 76,
+  fixedRows: 10,
+  footer: 88,
 } as const;
 
 /** Relatório: depois do Painel, a lista de todos os lançamentos do mês. */
 export const REPORT_TABLE = {
-  title: 75,
-  header: 76,
-  first: 77,
+  title: 90,
+  header: 91,
+  first: 92,
   /** Até onde formatar (a lista cresce com a fórmula FILTER). */
   last: 700,
   headers: ['Data', 'Valor', 'Tipo', 'Categoria', 'Forma', 'Cartão/Conta', 'Descrição'],
@@ -420,6 +455,10 @@ function rowHeights(): [number, number, number][] {
     [p.listsTitle, p.listsTitle, 30],
     [p.listsHeader, p.listsHeader, 24],
     [p.listsFirst, p.listsFirst + 7, 26],
+    [p.fixedTitle - 1, p.fixedTitle - 1, 18],
+    [p.fixedTitle, p.fixedTitle, 30],
+    [p.fixedHeader, p.fixedHeader, 24],
+    [p.fixedFirst, p.fixedFirst + p.fixedRows - 1, 26],
     [p.footer, p.footer, 24],
   ];
 }
@@ -596,6 +635,29 @@ export function dashboardCells(options: {
       put(`${String.fromCharCode(71 + i)}${row}`, `=IF(${ref}="","",${ref})`);
     });
   }
+
+  // Gastos fixos ativos, lidos da aba Gastos fixos (A Gasto, B Categoria, C Valor, D Dia,
+  // E Forma, F Cartão/Conta, G Como funciona, H Situação, I Este mês). Os textos longos
+  // (cartão e "como funciona") ficam em colunas com a vizinha vazia, para caberem.
+  put(`B${p.fixedTitle}`, '="📌 Gastos fixos · "&Dados!$AX$4');
+  FIXED_COLUMNS.forEach(({ cell, header }) => {
+    put(`${cell}${p.fixedHeader}`, header);
+  });
+  Object.entries(FIXED_HEADERS).forEach(([cell, header]) => {
+    put(`${cell}${p.fixedHeader}`, header);
+  });
+  const fixed = (letter: string) =>
+    `'Gastos fixos'!$${letter}$2:$${letter}$${1 + MAX_RECURRING_ROWS}`;
+  const active = `${fixed('H')}="Ativo"`;
+  FIXED_COLUMNS.forEach(({ cell, source }, i) => {
+    const columns = source.map(fixed).join(',');
+    const list = source.length > 1 ? `{${columns}}` : columns;
+    const empty = i === 0 ? '"Nenhum gasto fixo ativo. Cadastre com /fixos no chat."' : '""';
+    put(
+      `${cell}${p.fixedFirst}`,
+      `=IFERROR(ARRAY_CONSTRAIN(FILTER(${list},${active}),${String(p.fixedRows)},${String(source.length)}),${empty})`,
+    );
+  });
 
   put(
     `B${p.footer}`,
@@ -840,6 +902,12 @@ export function dashboardFormatRequests(
       rows: [p.listsFirst, p.listsFirst + MAX_LATEST - 1],
       cols: RIGHT,
     },
+    {
+      title: p.fixedTitle,
+      header: p.fixedHeader,
+      rows: [p.fixedFirst, p.fixedFirst + p.fixedRows - 1],
+      cols: [LEFT[0], RIGHT[1]],
+    },
   ];
   for (const panel of panels) {
     const whole = g([panel.title, panel.rows[1]], panel.cols);
@@ -866,6 +934,7 @@ export function dashboardFormatRequests(
   const balances: [number, number] = [p.balancesTitle + 1, p.balancesTitle + p.balanceRows];
   const top: [number, number] = [p.listsFirst, p.listsFirst + MAX_TOP - 1];
   const latest: [number, number] = [p.listsFirst, p.listsFirst + MAX_LATEST - 1];
+  const fixedRows: [number, number] = [p.fixedFirst, p.fixedFirst + p.fixedRows - 1];
   requests.push(
     cellFormat(g(budget, [2, 4]), { numberFormat: CURRENCY }),
     cellFormat(g(budget, [5, 6]), { numberFormat: PERCENT, horizontalAlignment: 'RIGHT' }),
@@ -886,6 +955,10 @@ export function dashboardFormatRequests(
     cellFormat(g(latest, [10, 11]), { numberFormat: SIGNED_CURRENCY }),
     conditionalText(g(latest, [10, 11]), numberLess(0), THEME.red),
     conditionalText(g(latest, [10, 11]), numberGreater(0), THEME.green),
+    cellFormat(g(fixedRows, [3, 4]), { numberFormat: CURRENCY }),
+    cellFormat(g([p.fixedHeader, p.fixedFirst + p.fixedRows - 1], [4, 5]), {
+      horizontalAlignment: 'CENTER',
+    }),
     merge(g([p.footer, p.footer], [1, 11])),
     cellFormat(g([p.footer, p.footer], [1, 11]), {
       textFormat: textFormat(THEME.muted, { size: 9 }),

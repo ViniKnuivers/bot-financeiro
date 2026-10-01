@@ -257,6 +257,24 @@ describe('SheetSyncService', () => {
 });
 
 describe('aba Gastos fixos', () => {
+  it('o Painel mostra os fixos ativos, lidos da aba, na sintaxe pt_BR', async () => {
+    const { sync, gateway } = setup();
+    await sync.syncNow();
+
+    expect(gateway.formulas.get("'Painel'!B74")?.[0]?.[0]).toBe(
+      '="📌 Gastos fixos · "&Dados!$AX$4',
+    );
+    expect(gateway.formulas.get("'Painel'!B76")?.[0]?.[0]).toBe(
+      "=IFERROR(ARRAY_CONSTRAIN(FILTER({'Gastos fixos'!$A$2:$A$51\\'Gastos fixos'!$B$2:$B$51\\" +
+        "'Gastos fixos'!$C$2:$C$51\\'Gastos fixos'!$D$2:$D$51\\'Gastos fixos'!$E$2:$E$51\\" +
+        "'Gastos fixos'!$I$2:$I$51};'Gastos fixos'!$H$2:$H$51=\"Ativo\");10;6);" +
+        '"Nenhum gasto fixo ativo. Cadastre com /fixos no chat.")',
+    );
+    expect(gateway.formulas.get("'Painel'!J76")?.[0]?.[0]).toBe(
+      '=IFERROR(ARRAY_CONSTRAIN(FILTER(\'Gastos fixos\'!$G$2:$G$51;\'Gastos fixos\'!$H$2:$H$51="Ativo");10;1);"")',
+    );
+  });
+
   it('lista os fixos por dia, com categoria, valor, como funcionam e se já saíram no mês', async () => {
     const { sync, gateway, accounts, recurringRepository } = setup();
     const [card] = await accounts.create('CREDIT_CARD', 'Itaú');
@@ -361,7 +379,7 @@ describe('relatório em PDF', () => {
 
     await sync.reportPdf('2026-09');
 
-    expect(gateway.exported.map((e) => e.range)).toEqual(['A1:L78']);
+    expect(gateway.exported.map((e) => e.range)).toEqual(['A1:L93']);
   });
 
   it('escreve o mês só no Relatório, exporta com a aba visível e esconde de novo', async () => {
@@ -375,9 +393,9 @@ describe('relatório em PDF', () => {
     const report = gateway.tabs.find((t) => t.title === 'Relatório');
     expect(file.filename).toBe('relatorio-agosto-2026.pdf');
     expect(file.data.subarray(0, 5).toString()).toBe('%PDF-');
-    // Só até a última linha da lista (77..79) + uma de margem: sem páginas vazias.
+    // Só até a última linha da lista (92..94) + uma de margem: sem páginas vazias.
     expect(gateway.exported).toEqual([
-      { sheetId: report?.sheetId, range: 'A1:L80', hidden: false },
+      { sheetId: report?.sheetId, range: 'A1:L95', hidden: false },
     ]);
     expect(gateway.range("'Relatório'!H2")).toEqual([['ago/2026']]);
     // Agosto: de 01/08 (46235) até antes de 01/09 (46266).
@@ -398,7 +416,7 @@ describe('relatório em PDF', () => {
       '=INDEX(Dados!$B$2:$B$25;Dados!$BI$2)',
     );
     expect(gateway.formulas.get("'Dados'!BH1:BI2")?.[0]?.[1]).toContain("'Relatório'!$H$2");
-    const list = String(gateway.formulas.get("'Relatório'!B77")?.[0]?.[0]);
+    const list = String(gateway.formulas.get("'Relatório'!B92")?.[0]?.[0]);
     expect(list).toMatch(/^=IFERROR\(SORT\(FILTER\(\{'Lançamentos'!\$B\$2:\$B\\/);
     expect(list).toContain(">=Dados!$BN$1;'Lançamentos'!$B$2:$B<Dados!$BN$2");
   });
