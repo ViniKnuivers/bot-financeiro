@@ -166,7 +166,7 @@ function isVoucher(
 }
 
 /**
- * "🔮 Previsão para 31/10: sobra de R$ 1.200,00 (no ritmo atual)" ou, se o mês for
+ * "🔮 Previsão para 31/10: o mês fecha no azul em R$ 1.200,00 (no ritmo atual)" ou, se o mês for
  * fechar negativo, "⚠️ Previsão para 31/10: faltam R$ 300,00 (...)". O ⚠️ no começo é o
  * que pinta a faixa de vermelho no Painel.
  */
@@ -179,7 +179,7 @@ export function forecastSentence(forecast: Forecast): string {
     return `🔮 Previsão para ${end}: aparece a partir do dia ${String(MIN_DAY_WITHOUT_HISTORY)}, quando houver alguns dias de lançamentos.`;
   }
   return forecast.surplusCents >= 0
-    ? `🔮 Previsão para ${end}: sobra de ${formatCents(forecast.surplusCents)} (no ritmo atual)`
+    ? `🔮 Previsão para ${end}: o mês fecha no azul em ${formatCents(forecast.surplusCents)} (no ritmo atual)`
     : `⚠️ Previsão para ${end}: o mês fecha no vermelho em ${formatCents(-forecast.surplusCents)} (no ritmo atual)`;
 }
 

@@ -110,10 +110,10 @@ describe('buildSheetContent', () => {
         { netInvestedBefore: 100000 },
       ),
     );
-    const table = range(content, "'Resumo'!D1:L25");
+    const table = range(content, "'Resumo'!D1:J25");
 
     expect(table).toHaveLength(25);
-    expect(table.at(-1)?.[8]).toBe(1500);
+    expect(table.at(-1)?.[6]).toBe(1500);
     // Tabela de apoio dos gráficos (aba Dados): cabeçalho + 12 meses, acumulado no fim.
     const chart = range(content, "'Dados'!K1:P13");
     expect(chart).toHaveLength(13);

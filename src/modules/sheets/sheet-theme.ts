@@ -22,7 +22,7 @@ export const THEME = {
  * Muda quando o visual muda: a planilha de quem já usa o bot é reformatada sozinha no
  * próximo deploy (a versão entra na assinatura da estrutura).
  */
-export const THEME_VERSION = 6;
+export const THEME_VERSION = 7;
 
 export function rgb(hex: string): sheets_v4.Schema$Color {
   return {

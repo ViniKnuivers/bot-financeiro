@@ -417,17 +417,20 @@ interface Kpi {
   upIsGood: boolean;
 }
 
+// Sem "Sobra" de propósito: receitas − despesas do mês confundia com o saldo da conta.
 const KPIS: readonly Kpi[] = [
   { label: '💰 Receitas', column: 'B', upIsGood: true },
   { label: '💸 Despesas', column: 'C', upIsGood: false },
-  { label: '🪙 Sobra', column: 'D', upIsGood: true },
-  // Aportes do mês (coluna E): o resgate já entra na sobra, então não deixa negativo.
+  // Aportes do mês (coluna E), nunca negativo.
   { label: '📈 Investido', column: 'E', upIsGood: true },
   { label: '🏦 Saldo em conta', column: null, upIsGood: true },
 ];
 
-/** Coluna (letra) do cartão de número `k` (0..4): B, D, F, H, J. */
-const kpiColumn = (k: number): string => String.fromCharCode(66 + 2 * k);
+/** Primeira coluna (índice) dos cartões: 4 cartões de 2 colunas, centrados em C..J. */
+const KPI_FIRST_COLUMN = 2;
+
+/** Coluna (letra) do cartão de número `k` (0..3): C, E, G, I. */
+const kpiColumn = (k: number): string => String.fromCharCode(65 + KPI_FIRST_COLUMN + 2 * k);
 
 /** "▲ 12% vs ago/2026" (ou "= igual a ago/2026") comparando o mês escolhido com o anterior. */
 function deltaFormula(column: string, v: DashboardVariant): string {
@@ -753,7 +756,7 @@ export function dashboardFormatRequests(
 
   // Cartões com os números do mês.
   KPIS.forEach((kpi, k) => {
-    const cols = [1 + 2 * k, 3 + 2 * k] as const;
+    const cols = [KPI_FIRST_COLUMN + 2 * k, KPI_FIRST_COLUMN + 2 + 2 * k] as const;
     for (const row of [p.kpiLabel, p.kpiValue, p.kpiDelta])
       requests.push(merge(g([row, row], cols)));
     requests.push(
@@ -1014,7 +1017,7 @@ export function dashboardChartRequests(
           headerCount: 1,
           axis: axes(),
           domains: [{ domain: month }],
-          series: [series(11, THEME.green), series(12, THEME.red), series(13, THEME.gold)],
+          series: [series(11, THEME.green), series(12, THEME.red)],
         },
       }),
       PANEL.chartsTop,

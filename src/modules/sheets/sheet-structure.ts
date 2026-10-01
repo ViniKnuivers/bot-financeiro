@@ -146,11 +146,11 @@ export function formattingRequests(ids: TabIds): SheetRequest[] {
     numberFormat(grid(transactions, [1, 100_000], [5, 6]), CURRENCY),
 
     ...header(grid(summary, [0, 1], [0, 2])),
-    ...header(grid(summary, [9, 10], [0, 2])),
-    ...header(grid(summary, [0, 1], [3, 12])),
-    numberFormat(grid(summary, [1, 8], [1, 2]), CURRENCY),
-    numberFormat(grid(summary, [10, 20], [1, 2]), CURRENCY),
-    numberFormat(grid(summary, [1, 25], [4, 12]), CURRENCY),
+    ...header(grid(summary, [7, 8], [0, 2])),
+    ...header(grid(summary, [0, 1], [3, 10])),
+    numberFormat(grid(summary, [1, 6], [1, 2]), CURRENCY),
+    numberFormat(grid(summary, [8, 18], [1, 2]), CURRENCY),
+    numberFormat(grid(summary, [1, 25], [4, 10]), CURRENCY),
 
     ...header(grid(categories, [0, 1], [0, 6])),
     numberFormat(grid(categories, [1, 12], [1, 5]), CURRENCY),

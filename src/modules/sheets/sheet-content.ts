@@ -141,9 +141,7 @@ function summaryTab(input: SheetData): RangeValues[] {
     ['Mês atual', formatMonthLong(current.month)],
     ['Receitas', reais(current.incomeCents)],
     ['Despesas', reais(current.expenseCents)],
-    ['Sobra', reais(current.surplusCents)],
     ['Investido (aportes)', reais(current.investedCents)],
-    ['Livre depois de investir', reais(current.freeCents)],
     ['VR/VA: entrou', reais(current.voucherIncomeCents)],
     ['VR/VA: saiu', reais(current.voucherExpenseCents)],
     [],
@@ -156,8 +154,12 @@ function summaryTab(input: SheetData): RangeValues[] {
   return [
     { range: a1('summary', 'A1:B20'), values: block },
     {
-      range: a1('summary', 'D1:L25'),
-      values: [[...SUMMARY_TABLE_HEADERS], ...monthTable(input)],
+      range: a1('summary', 'D1:J25'),
+      // A tabela de meses do Dados sem as colunas Sobra (3) e Livre (7).
+      values: [
+        [...SUMMARY_TABLE_HEADERS],
+        ...monthTable(input).map((row) => row.filter((_, i) => i !== 3 && i !== 7)),
+      ],
     },
   ];
 }

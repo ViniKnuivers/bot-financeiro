@@ -111,7 +111,7 @@ describe('SheetSyncService', () => {
     expect(gateway.range("'Resumo'!A1:B20").slice(1, 4)).toEqual([
       ['Receitas', 3750],
       ['Despesas', 32],
-      ['Sobra', 3718],
+      ['Investido (aportes)', 0],
     ]);
     expect(sync.status().lastSyncAt).not.toBeNull();
   });
@@ -236,7 +236,7 @@ describe('SheetSyncService', () => {
     await sync.syncNow();
     expect(gateway.formulas.get("'Painel'!H2")).toEqual([['Mês atual']]);
     // Fórmulas vão na sintaxe da planilha pt_BR (";" entre argumentos).
-    expect(gateway.formulas.get("'Painel'!B5")?.[0]?.[0]).toBe(
+    expect(gateway.formulas.get("'Painel'!C5")?.[0]?.[0]).toBe(
       '=INDEX(Dados!$B$2:$B$25;Dados!$BC$2)',
     );
   });
@@ -282,7 +282,7 @@ describe('relatório em PDF', () => {
     const { sync, gateway } = setup();
     await sync.syncNow();
 
-    expect(gateway.formulas.get("'Relatório'!B5")?.[0]?.[0]).toBe(
+    expect(gateway.formulas.get("'Relatório'!C5")?.[0]?.[0]).toBe(
       '=INDEX(Dados!$B$2:$B$25;Dados!$BI$2)',
     );
     expect(gateway.formulas.get("'Dados'!BH1:BI2")?.[0]?.[1]).toContain("'Relatório'!$H$2");

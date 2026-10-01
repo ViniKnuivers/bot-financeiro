@@ -59,18 +59,17 @@ export const TRANSACTION_HEADERS = [
 /** Resumo: tabela mês a mês em D1:L25 (cabeçalho + 24 meses). Gráficos usam os 12 últimos. */
 export const SUMMARY_MONTHS = 24;
 export const CHART_MONTHS = 12;
+/** Colunas da tabela de meses no Resumo (sem "Sobra" e "Livre", que confundiam). */
 export const SUMMARY_TABLE_HEADERS = [
   'Mês',
   'Receitas',
   'Despesas',
-  'Sobra',
   'Aportes',
   'Resgates',
   'Investido no mês',
-  'Livre',
   'Investido acumulado',
 ] as const;
-/** Saldos das contas no Resumo: A11:B20. */
+/** Saldos das contas no Resumo: A9:B18. */
 export const MAX_BALANCE_ROWS = 10;
 
 /** Cartões: faturas de 3 meses atrás até 6 à frente (A3:?12). */

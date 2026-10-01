@@ -891,7 +891,7 @@ describe('Assistant', () => {
       expect(summary.text).toMatch(/VR\/VA \(fora da sobra\): entrou R\$\s0,00, saiu R\$\s50,00/);
       expect(summary.actions?.flat().map((a) => a.id)).toEqual(['rs:2026-08']);
       // Sem histórico: ritmo do mês (R$ 1.200 em 24 dias = R$ 50/dia × 6 dias que faltam).
-      expect(summary.text).toMatch(/Previsão para 30\/09: sobra de R\$\s2\.250,00/);
+      expect(summary.text).toMatch(/Previsão para 30\/09: o mês fecha no azul em R\$\s2\.250,00/);
       expect(summary.text).toMatch(/R\$\s1\.200,00 já foram \+ R\$\s300,00 do dia a dia/);
     });
   });

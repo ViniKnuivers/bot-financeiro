@@ -163,7 +163,7 @@ describe('forecastSentence', () => {
 
   it('sobra positiva com 🔮; negativa começa com ⚠️ (é o que pinta o Painel de vermelho)', () => {
     expect(plain(forecastSentence(base))).toBe(
-      '🔮 Previsão para 31/10: sobra de R$ 1.000,00 (no ritmo atual)',
+      '🔮 Previsão para 31/10: o mês fecha no azul em R$ 1.000,00 (no ritmo atual)',
     );
     expect(plain(forecastSentence({ ...base, surplusCents: -30000 }))).toBe(
       '⚠️ Previsão para 31/10: o mês fecha no vermelho em R$ 300,00 (no ritmo atual)',
