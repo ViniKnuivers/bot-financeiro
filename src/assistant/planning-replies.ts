@@ -1,7 +1,7 @@
 import { formatDayMonth, formatMonthLong, parseDateOnly, weekdayName } from '../lib/dates.js';
 import { formatCents } from '../lib/money.js';
 import type { Forecast } from '../modules/insights/forecast.js';
-import { forecastSentence } from '../modules/insights/forecast.js';
+import { forecastSentence, hasForecast } from '../modules/insights/forecast.js';
 import type { WeekInsights } from '../modules/insights/insights.service.js';
 import type { WeeklyTip } from '../modules/insights/weekly.js';
 import type { YearSummary } from '../modules/insights/yearly.js';
@@ -88,7 +88,7 @@ export function formatWeek(
         : `Orçamento de ${CATEGORY_LABELS[budget.category]} em ${String(budget.percent)}% (${formatCents(budget.spentCents)} de ${formatCents(budget.limitCents)}).`,
     );
   }
-  if (extras.forecast && extras.forecast.basis !== 'none') {
+  if (extras.forecast && hasForecast(extras.forecast)) {
     notes.push(forecastSentence(extras.forecast).replace(/^\S+\s/, ''));
   }
   notes.push(...extras.goals.map((goal) => formatGoalShort(goal).replace(/^🎯 /, 'Meta ')));

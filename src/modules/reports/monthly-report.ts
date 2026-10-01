@@ -45,13 +45,17 @@ export interface MonthSummary {
   expenseCents: number;
   voucherIncomeCents: number;
   voucherExpenseCents: number;
-  /** Receitas − despesas (sem VR/VA): o que sobrou para investir. */
+  /**
+   * Receitas + resgates − despesas (sem VR/VA): o dinheiro do mês que sobrou. O resgate
+   * entra como dinheiro que voltou para a conta (não é receita, mas está disponível).
+   */
   surplusCents: number;
+  /** Aportes do mês (o "Investido" do /resumo e do Painel, nunca negativo). */
   investedCents: number;
   redeemedCents: number;
-  /** Aportes − resgates. */
+  /** Aportes − resgates (para o saldo acumulado dos investimentos). */
   netInvestedCents: number;
-  /** Sobra − investido: o que ficou livre na conta. */
+  /** Sobra − aportes: o que ficou livre na conta. */
   freeCents: number;
   /** Despesas por categoria, incluindo VR/VA (é gasto de verdade), da maior para a menor. */
   byCategory: CategoryTotal[];
@@ -140,9 +144,9 @@ export function summarizeMonths(
 
   return months.map((month) => {
     const summary = summaries.get(month) ?? emptySummary(month);
-    summary.surplusCents = summary.incomeCents - summary.expenseCents;
+    summary.surplusCents = summary.incomeCents + summary.redeemedCents - summary.expenseCents;
     summary.netInvestedCents = summary.investedCents - summary.redeemedCents;
-    summary.freeCents = summary.surplusCents - summary.netInvestedCents;
+    summary.freeCents = summary.surplusCents - summary.investedCents;
     summary.byCategory = [...(categories.get(month) ?? [])]
       .map(([category, cents]) => ({ category, cents }))
       .sort((a, b) => b.cents - a.cents);

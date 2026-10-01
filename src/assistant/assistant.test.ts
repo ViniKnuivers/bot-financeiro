@@ -725,6 +725,41 @@ describe('Assistant', () => {
   });
 
   describe('investimentos e saldo da conta', () => {
+    it('resgate entra na sobra e o Investido mostra só os aportes (o caso de 01/10)', async () => {
+      const { assistant, parse, accounts, say } = setup();
+      await accounts.create('BANK', 'Itaú', { initialBalanceCents: 0 });
+      parse.mockResolvedValue(
+        result({
+          transactions: [
+            draft({
+              type: 'INCOME',
+              category: 'SALARIO',
+              description: 'Salário',
+              amountCents: 359600,
+              paymentMethod: null,
+            }),
+            draft({
+              type: 'REDEMPTION',
+              category: 'INVESTIMENTO',
+              description: 'Cofrinho',
+              amountCents: 53500,
+              paymentMethod: null,
+            }),
+            draft({ amountCents: 155500, paymentMethod: 'PIX' }),
+          ],
+        }),
+      );
+      await say('salário, resgate do cofrinho e gastos');
+
+      const summary = (await assistant.handleSummary()).text;
+
+      // 3.596 + 535 − 1.555 = 2.576.
+      expect(summary).toMatch(/✅ Sobra: R\$\s2\.576,00 \(com R\$\s535,00 de resgate\)/);
+      expect(summary).toMatch(/📈 Investido: R\$\s0,00/);
+      expect(summary).toMatch(/↩️ Resgatado: R\$\s535,00/);
+      expect(summary).toMatch(/🟢 Livre depois de investir: R\$\s2\.576,00/);
+    });
+
     it('aporte cai na conta, mostra o total no destino e o saldo da conta', async () => {
       const { parse, accounts, transactions, say } = setup();
       await accounts.create('BANK', 'Itaú', { initialBalanceCents: 200000 });

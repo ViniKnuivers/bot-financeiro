@@ -54,12 +54,14 @@ Bot:   ✅ Registrado:
 - **Acompanha o VR e o VA:** "recebi 600 de VA" e, a cada compra no VA, ele mostra quanto
   sobrou. O saldo acumula de um mês para o outro.
 - **Mostra quanto sobra para investir:** `/resumo` traz o mês com receitas, despesas,
-  sobra (sem contar VR/VA, que não dá para investir), quanto você investiu e o saldo da
-  conta. Dá para navegar pelos meses anteriores.
+  sobra (receitas + resgates − despesas, sem contar VR/VA, que não dá para investir),
+  quanto você investiu (os aportes) e o saldo da conta. Compras no crédito contam no mês da
+  compra. Dá para navegar pelos meses anteriores.
 - **Prevê o fim do mês:** no ritmo atual, quanto vai sobrar (ou faltar) no dia 30. A conta
   junta o que já aconteceu, os gastos fixos que ainda vão ser lançados e o seu gasto do dia a
-  dia (média dos últimos 3 meses). Aparece no `/resumo` e no Painel da planilha. Se o mês for
-  fechar no vermelho, o bot avisa (no máximo 1 vez por semana).
+  dia (média dos últimos 3 meses; sem esse histórico, o ritmo do próprio mês, a partir do dia
+  7). Aparece no `/resumo` e no Painel da planilha. Se o mês for fechar no vermelho, o bot
+  avisa (no máximo 1 vez por semana).
 - **Responde perguntas sobre os seus gastos:** "quanto gastei com uber em setembro?",
   "gastei mais com mercado que no mês passado?", "qual mês eu mais gastei com lazer?",
   "qual meu maior gasto do mês?". A IA só entende a pergunta; a conta é feita pelo bot com

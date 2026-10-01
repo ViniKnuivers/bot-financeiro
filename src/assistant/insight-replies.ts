@@ -3,6 +3,7 @@ import { formatDayMonth, formatMonthLong } from '../lib/dates.js';
 import { formatCents } from '../lib/money.js';
 import { accountLabel } from '../modules/accounts/account-kinds.js';
 import { daysInMonth } from '../modules/accounts/credit-invoice.js';
+import { hasForecast } from '../modules/insights/forecast.js';
 import type { CanAffordAnswer, InsightAnswer } from '../modules/insights/insights.service.js';
 import type { Period, PeriodTotal, QueryAnswer, QuerySubject } from '../modules/insights/query.js';
 import {
@@ -153,7 +154,7 @@ function formatCanAfford(answer: CanAffordAnswer): string {
   const lines = [header];
   if (answer.surplusAfterCents === null) {
     lines.push('• Pago com vale (VR/VA): não mexe na sobra do mês.');
-  } else if (answer.forecast.basis === 'none') {
+  } else if (!hasForecast(answer.forecast)) {
     lines.push('• Ainda não tenho lançamentos suficientes para prever o mês.');
   } else {
     lines.push(

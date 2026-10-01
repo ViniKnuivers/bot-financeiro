@@ -21,6 +21,7 @@ import type { RecurringEntry } from '../modules/recurring/recurring.repository.j
 import {
   forecastBreakdown,
   forecastSentence,
+  hasForecast,
   type Forecast,
 } from '../modules/insights/forecast.js';
 import type { InvestmentPosition, MonthSummary } from '../modules/reports/monthly-report.js';
@@ -332,16 +333,15 @@ export function formatMonthSummary(
     '',
     `💰 Receitas: ${formatCents(summary.incomeCents)}`,
     `💸 Despesas: ${formatCents(summary.expenseCents)}`,
-    `✅ Sobra: ${formatCents(summary.surplusCents)}`,
-    `📈 Investido: ${formatCents(summary.netInvestedCents)}` +
-      (summary.redeemedCents > 0
-        ? ` (aportes ${formatCents(summary.investedCents)} − resgates ${formatCents(summary.redeemedCents)})`
-        : ''),
+    `✅ Sobra: ${formatCents(summary.surplusCents)}` +
+      (summary.redeemedCents > 0 ? ` (com ${formatCents(summary.redeemedCents)} de resgate)` : ''),
+    `📈 Investido: ${formatCents(summary.investedCents)}`,
+    ...(summary.redeemedCents > 0 ? [`↩️ Resgatado: ${formatCents(summary.redeemedCents)}`] : []),
     `🟢 Livre depois de investir: ${formatCents(summary.freeCents)}`,
   ];
   if (forecast) {
     lines.push('', forecastSentence(forecast));
-    if (forecast.basis !== 'none') lines.push(forecastBreakdown(forecast));
+    if (hasForecast(forecast)) lines.push(forecastBreakdown(forecast));
   }
   if (summary.voucherIncomeCents > 0 || summary.voucherExpenseCents > 0) {
     lines.push(

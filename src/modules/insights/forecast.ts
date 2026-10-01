@@ -32,9 +32,18 @@ export interface ForecastInput {
 
 /**
  * De onde veio o ritmo do dia a dia: média dos meses anteriores ("history"), o próprio
- * mês ("month", quando ainda não há histórico) ou nada ("none", sem lançamentos).
+ * mês ("month", quando ainda não há histórico), ainda cedo para o ritmo do mês valer
+ * ("early": sem histórico e antes do dia 7) ou nada ("none", sem lançamentos).
  */
-export type ForecastBasis = 'history' | 'month' | 'none';
+export type ForecastBasis = 'history' | 'month' | 'early' | 'none';
+
+/** Sem histórico, o ritmo do próprio mês só vale a partir deste dia. */
+export const MIN_DAY_WITHOUT_HISTORY = 7;
+
+/** Se a previsão tem números para mostrar (com "early" e "none" não tem). */
+export function hasForecast(forecast: Pick<Forecast, 'basis'>): boolean {
+  return forecast.basis === 'history' || forecast.basis === 'month';
+}
 
 export interface Forecast {
   month: string;
@@ -75,7 +84,8 @@ export function forecastMonth(input: ForecastInput): Forecast {
   const { dailyCents, basis } = variableDailyRate(input, month, dayOfMonth);
   const variableCents = Math.round(dailyCents * (lastDay - dayOfMonth));
 
-  const soFarIncomeCents = current?.incomeCents ?? 0;
+  // Mesma sobra do /resumo: o que já voltou de investimentos conta como entrada.
+  const soFarIncomeCents = (current?.incomeCents ?? 0) + (current?.redeemedCents ?? 0);
   const soFarExpenseCents = current?.expenseCents ?? 0;
   const incomeCents = soFarIncomeCents + fixedIncomeCents;
   const expenseCents = soFarExpenseCents + fixedExpenseCents + variableCents;
@@ -121,6 +131,8 @@ function variableDailyRate(
     const cents = sumShares(variable, from, monthStart);
     return { dailyCents: cents / historyDays, basis: 'history' };
   }
+  // Poucos dias não dizem nada: um gasto grande no dia 1 viraria "R$ 40 mil no mês".
+  if (dayOfMonth < MIN_DAY_WITHOUT_HISTORY) return { dailyCents: 0, basis: 'early' };
   const tomorrow = `${month}-${String(dayOfMonth + 1).padStart(2, '0')}`;
   return { dailyCents: sumShares(variable, monthStart, tomorrow) / dayOfMonth, basis: 'month' };
 }
@@ -162,6 +174,9 @@ export function forecastSentence(forecast: Forecast): string {
   const end = formatDayMonth(new Date(`${forecast.endDate}T00:00:00.000Z`));
   if (forecast.basis === 'none') {
     return `🔮 Previsão para ${end}: ainda sem lançamentos para calcular.`;
+  }
+  if (forecast.basis === 'early') {
+    return `🔮 Previsão para ${end}: aparece a partir do dia ${String(MIN_DAY_WITHOUT_HISTORY)}, quando houver alguns dias de lançamentos.`;
   }
   return forecast.surplusCents >= 0
     ? `🔮 Previsão para ${end}: sobra de ${formatCents(forecast.surplusCents)} (no ritmo atual)`

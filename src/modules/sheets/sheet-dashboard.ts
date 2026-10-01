@@ -421,7 +421,8 @@ const KPIS: readonly Kpi[] = [
   { label: '💰 Receitas', column: 'B', upIsGood: true },
   { label: '💸 Despesas', column: 'C', upIsGood: false },
   { label: '🪙 Sobra', column: 'D', upIsGood: true },
-  { label: '📈 Investido', column: 'G', upIsGood: true },
+  // Aportes do mês (coluna E): o resgate já entra na sobra, então não deixa negativo.
+  { label: '📈 Investido', column: 'E', upIsGood: true },
   { label: '🏦 Saldo em conta', column: null, upIsGood: true },
 ];
 

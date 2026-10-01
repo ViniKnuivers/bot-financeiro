@@ -96,6 +96,29 @@ describe('forecastMonth', () => {
     expect(forecast.fixedIncomeCents).toBe(400000);
   });
 
+  it('sem histórico e antes do dia 7: sem previsão ("early"), em vez de multiplicar 1 dia por 30', () => {
+    // O caso real de 01/10: R$ 1.490 gastos no dia 1 não querem dizer R$ 45 mil no mês.
+    const forecast = forecastMonth({
+      today: '2026-10-01',
+      transactions: [
+        tx({
+          amountCents: 359600,
+          type: 'INCOME',
+          category: 'SALARIO',
+          occurredAt: date('2026-10-01'),
+        }),
+        tx({ amountCents: 149000, occurredAt: date('2026-10-01') }),
+      ],
+      recurring: [],
+      voucherAccountIds: NO_VOUCHERS,
+    });
+
+    expect(forecast).toMatchObject({ basis: 'early', variableCents: 0, surplusCents: 210600 });
+    expect(forecastSentence(forecast)).toBe(
+      '🔮 Previsão para 31/10: aparece a partir do dia 7, quando houver alguns dias de lançamentos.',
+    );
+  });
+
   it('sem histórico: usa o ritmo deste mês até hoje; sem nada: base "none"', () => {
     const pace = forecastMonth({
       today: '2026-10-10',

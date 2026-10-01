@@ -142,7 +142,7 @@ function summaryTab(input: SheetData): RangeValues[] {
     ['Receitas', reais(current.incomeCents)],
     ['Despesas', reais(current.expenseCents)],
     ['Sobra', reais(current.surplusCents)],
-    ['Investido (aportes − resgates)', reais(current.netInvestedCents)],
+    ['Investido (aportes)', reais(current.investedCents)],
     ['Livre depois de investir', reais(current.freeCents)],
     ['VR/VA: entrou', reais(current.voucherIncomeCents)],
     ['VR/VA: saiu', reais(current.voucherExpenseCents)],

@@ -44,7 +44,7 @@ describe('monthlyShares', () => {
 });
 
 describe('summarizeMonths', () => {
-  it('sobra = receitas − despesas, sem VR/VA; livre = sobra − investido', () => {
+  it('sobra = receitas + resgates − despesas, sem VR/VA; livre = sobra − aportes', () => {
     const [september] = summarizeMonths(
       [
         tx({ type: 'INCOME', category: 'SALARIO', amountCents: 375000, paymentMethod: null }),
@@ -79,7 +79,8 @@ describe('summarizeMonths', () => {
       expenseCents: 120000,
       voucherIncomeCents: 60000,
       voucherExpenseCents: 8000,
-      surplusCents: 255000,
+      // 3.750 + 200 de resgate − 1.200.
+      surplusCents: 275000,
       investedCents: 100000,
       redeemedCents: 20000,
       netInvestedCents: 80000,

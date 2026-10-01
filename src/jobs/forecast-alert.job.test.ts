@@ -67,7 +67,7 @@ describe('forecastAlertJob', () => {
     for (const forecast of [
       { ...NEGATIVE, surplusCents: 5000 },
       { ...NEGATIVE, basis: 'none' as const },
-      { ...NEGATIVE, basis: 'month' as const },
+      { ...NEGATIVE, basis: 'early' as const },
     ]) {
       const { job, notify } = setup(forecast, '2026-10-05T12:10:00Z');
       await job.run();
